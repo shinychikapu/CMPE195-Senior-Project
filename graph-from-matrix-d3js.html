@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Graph from Binary Matrix</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        svg {
+            border: 2px solid black;
+        }
+
+        .node circle {
+            fill: #1f77b4;
+            stroke: #fff;
+            stroke-width: 1.5px;
+        }
+
+        .node text {
+            font-size: 10px;
+            fill: white;
+            pointer-events: none;
+        }
+
+        .link {
+            stroke: #aaa;
+            stroke-opacity: 0.6;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Upload a Binary Matrix File</h2>
+    <input type="file" id="fileInput">
+    <button id="resetZoom">Reset Zoom</button>
+    <br><br>
+    <svg id="graph" width="100%" height="900"></svg>
+
+    <script>
+        const svg = d3.select("#graph");
+        const width = svg.node().getBoundingClientRect().width;
+        const height = +svg.attr("height");
+
+        const zoom = d3.zoom().on("zoom", (event) => {
+            g.attr("transform", event.transform);
+        });
+
+        svg.call(zoom);
+
+        const g = svg.append("g"); // Container for nodes and links
+
+        let simulation, node, link, zoomTransform;
+
+        // Handle file input
+        document.getElementById("fileInput").addEventListener("change", function (event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const text = e.target.result;
+                const matrix = text.trim().split("\n").map(row => row.trim().split(/\s+/).map(Number));
+                drawGraph(matrix);
+            };
+            reader.readAsText(file);
+        });
+
+        // Draw the graph from matrix
+        function drawGraph(matrix) {
+            g.selectAll("*").remove(); // Clear previous graph
+
+            const nodes = matrix.map((_, i) => ({ id: i }));
+            const links = [];
+
+            // Create links (i,j,k) where k = matrix[i][j]
+            for (let i = 0; i < matrix.length; i++) {
+                for (let j = 0; j < matrix[i].length; j++) {
+                    const value = matrix[i][j];
+                    if (value !== 0) {
+                        links.push({ source: i, target: j, weight: value });
+                    }
+                }
+            }
+
+            simulation?.stop(); // Stop previous simulation if any
+
+            // Setup simulation with forces
+            simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(50))
+                .force("charge", d3.forceManyBody().strength(-100))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .on("tick", ticked);
+
+            // Draw links (edges)
+            link = g.selectAll(".link")
+                .data(links)
+                .enter()
+                .append("line")
+                .attr("class", "link")
+                .attr("stroke-width", d => Math.sqrt(d.weight)); // Optional: make edges thicker for higher weights
+
+            // Draw nodes
+            const nodeGroup = g.selectAll(".node")
+                .data(nodes)
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .call(drag(simulation));
+
+            nodeGroup.append("circle")
+                .attr("r", 10);
+
+            nodeGroup.append("text")
+                .attr("dy", 4)
+                .attr("text-anchor", "middle")
+                .text(d => d.id);
+
+            node = nodeGroup;
+
+            // Let it settle then zoom to fit
+            setTimeout(() => fitToScreen(), 500); // Give simulation a moment to populate coordinates
+        }
+
+        // Update positions each tick
+        function ticked() {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            node
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
+        // Enable dragging of nodes
+        function drag(simulation) {
+            return d3.drag()
+                .on("start", (event, d) => {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                })
+                .on("drag", (event, d) => {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                })
+                .on("end", (event, d) => {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                });
+        }
+
+        // Fit the entire graph to screen using bounding box
+        function fitToScreen() {
+            const bounds = g.node().getBBox(); // Bounding box of all elements
+            const fullWidth = bounds.width;
+            const fullHeight = bounds.height;
+            const midX = bounds.x + fullWidth / 2;
+            const midY = bounds.y + fullHeight / 2;
+
+            const scale = 0.9 / Math.max(fullWidth / width, fullHeight / height); // Fit with margin
+            const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
+
+            const transform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+            svg.transition().duration(750).call(zoom.transform, transform); // Smooth transition
+        }
+
+        // Reset Zoom button handler
+        document.getElementById("resetZoom").addEventListener("click", () => {
+            fitToScreen(); // Reset to full view
+        });
+    </script>
+</body>
+
+</html>
