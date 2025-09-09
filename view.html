@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Hi-C Graph viewer</title>
+<style>
+  html, body { height:100%; margin:0; }
+  #chart { width:100%; height:100vh; background:#fafafa; }
+  .node { cursor: grab; }
+  .label { font: 10px/1 sans-serif; pointer-events:none; }
+  .tooltip {
+    position: fixed; padding: 6px 8px; background: rgba(0,0,0,.75);
+    color:#fff; border-radius:4px; font: 12px sans-serif; pointer-events:none;
+  }
+</style>
+<div id="chart"></div>
+<div class="tooltip" style="display:none"></div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+const FILE = "chr1_1mb_graph.json";   // <- keep next to this HTML
+
+const width = window.innerWidth, height = window.innerHeight;
+const svg = d3.select("#chart").append("svg").attr("width", width).attr("height", height);
+const g = svg.append("g");
+const tooltip = d3.select(".tooltip");
+
+// zoom/pan
+svg.call(d3.zoom().scaleExtent([0.1, 8]).on("zoom", (ev)=> g.attr("transform", ev.transform)));
+
+d3.json(FILE).then(data => {
+  const nodes = data.nodes.map(d => Object.assign({}, d));
+  const links = data.links.map(d => Object.assign({}, d));
+
+  // scales
+  const wExtent = d3.extent(links, d => d.weight);
+  const linkWidth = d3.scaleLinear().domain(wExtent).range([0.2, 3.5]);
+  const nodeSize = d3.scaleSqrt().domain([1, d3.max(d3.rollups(links, v => v.length, d => d.source).map(d=>d[1])) || 1]).range([3, 10]);
+
+  // draw links first
+  const link = g.append("g").attr("stroke", "#999").attr("stroke-opacity", 0.6)
+    .selectAll("line").data(links).join("line")
+    .attr("stroke-width", d => linkWidth(d.weight));
+
+  // draw nodes
+  const node = g.append("g").attr("stroke", "#fff").attr("stroke-width", 1.0)
+    .selectAll("circle").data(nodes).join("circle")
+    .attr("r", d => nodeSize(1))
+    .attr("fill", "#4682b4")
+    .attr("class", "node")
+    .call(drag(simulation()))
+    .on("mouseover", (ev, d) => {
+      tooltip.style("display", null).text(d.label);
+    })
+    .on("mousemove", ev => {
+      tooltip.style("left", (ev.clientX + 10) + "px").style("top", (ev.clientY + 10) + "px");
+    })
+    .on("mouseout", () => tooltip.style("display", "none"));
+
+  // optional small labels (toggle-able if you want)
+  const labels = g.append("g").selectAll("text").data(nodes).join("text")
+    .attr("class","label")
+    .attr("dx", 8).attr("dy", "0.35em").text(d => d.id);
+
+  // simulation
+  function simulation() {
+    const sim = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id(d => d.id).distance(d => 40 / Math.sqrt(d.weight)).strength(0.2))
+      .force("charge", d3.forceManyBody().strength(-30))
+      .force("center", d3.forceCenter(width/2, height/2))
+      .on("tick", ticked);
+    return sim;
+  }
+
+  function ticked() {
+    link
+      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+    node.attr("cx", d => d.x).attr("cy", d => d.y);
+    labels.attr("x", d => d.x).attr("y", d => d.y);
+  }
+
+  function drag(sim) {
+    function started(event, d) {
+      if (!event.active) sim.alphaTarget(0.3).restart();
+      d.fx = d.x; d.fy = d.y;
+    }
+    function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+    function ended(event, d) {
+      if (!event.active) sim.alphaTarget(0);
+      d.fx = null; d.fy = null;
+    }
+    return d3.drag().on("start", started).on("drag", dragged).on("end", ended);
+  }
+});
+</script>
