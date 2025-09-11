@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Graph from .RAWobserved data</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        svg {
+            border: 2px solid black;
+            /* static border around graph window */
+        }
+
+        .node circle {
+            fill: #1f77b4;
+            /* node color */
+            stroke: #fff;
+            /* white outline */
+            stroke-width: 1.5px;
+        }
+
+        .node text {
+            font-size: 20px;
+            fill: rgb(255, 127, 0);
+            pointer-events: none;
+            /* labels don’t block mouse events */
+            display: none;
+            /* hidden by default, shown on hover */
+        }
+
+        .link {
+            stroke: #444444;
+            /* link color */
+            stroke-opacity: 0.9;
+            /* slightly transparent */
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Upload a .RAWobserved data file</h2>
+    <input type="file" id="fileInput" />
+    <button id="resetZoom">Reset Zoom</button>
+    <p id="graphStats">Nodes: 0 | Edges: 0</p>
+    <svg id="graph" width="100%" height="900"></svg>
+
+    <script>
+        // Select the SVG canvas
+        const svg = d3.select("#graph");
+        const width = svg.node().getBoundingClientRect().width; // get dynamic width
+        const height = +svg.attr("height"); // fixed height
+        const g = svg.append("g"); // group that will contain nodes + links
+
+        // Zoom and pan support
+        const zoom = d3.zoom().on("zoom", (event) => {
+            g.attr("transform", event.transform); // apply zoom transform
+        });
+        svg.call(zoom);
+
+        let simulation, node, link; // globals for simulation and node/link selections
+
+        // Shared function: parse RAWobserved file text and build graph
+        function processData(text) {
+            const lines = text.trim().split("\n"); // split file into lines
+            const nodeSet = new Set(); // hold unique node IDs
+            const links = []; // hold edges
+            const edgeSet = new Set(); // track unique undirected edges
+
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/); // split line by whitespace
+                if (parts.length < 2) continue; // skip malformed lines
+
+                const [src, tgt, weight] = parts; // unpack source, target, weight
+                nodeSet.add(src);
+                nodeSet.add(tgt);
+
+                // Normalize edge key (ensure undirected A-B == B-A)
+                const key = src < tgt ? `${src}-${tgt}` : `${tgt}-${src}`;
+
+                // Only add edge if it hasn't been seen before
+                if (!edgeSet.has(key)) {
+                    edgeSet.add(key);
+                    links.push({
+                        source: src,
+                        target: tgt,
+                        weight: parseFloat(weight) || 1 // use weight if provided, else default 1
+                    });
+                }
+            }
+
+            // Convert Set into array of node objects {id: "nodeID"}
+            const nodes = Array.from(nodeSet).map(id => ({ id }));
+
+            // Filter out weak edges (example: only keep weight > 10000)
+            // const filteredLinks = links.filter(d => d.weight > 10000);
+            // Call drawGraph with nodes + filtered links
+            // drawGraph(nodes, filteredLinks);
+
+            // // Call drawGraph with nodes + links
+            drawGraph(nodes, links);
+        }
+
+        ////////////////////////////////////////////////////////////////
+        // Automatically load default file on page load (for debugging)
+        // fetch("chr1_1mb.RAWobserved")
+        //     .then(response => response.text())   // load as plain text
+        //     .then(text => {
+        //         document.getElementById("fileInput").disabled = true; // disable manual input
+        //         processData(text); // parse and draw graph
+        //     })
+        //     .catch(error => console.error("Auto-load failed:", error));
+        ////////////////////////////////////////////////////////////////
+
+        // File input handler (manual upload)
+        document.getElementById("fileInput").addEventListener("change", function (event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader(); // create file reader
+            reader.onload = function (e) {
+                processData(e.target.result); // reuse the same function
+            };
+            reader.readAsText(file); // read file as plain text
+        });
+
+        // Draw the graph with nodes + links
+        function drawGraph(nodes, links) {
+            g.selectAll("*").remove(); // clear old content
+            simulation?.stop(); // stop any existing simulation
+
+            // Create force simulation
+            simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(300))
+                .force("charge", d3.forceManyBody().strength(-2000))
+                .force("collision", d3.forceCollide().radius(18))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                // Extra forces to spread nodes into clusters
+                .force("x", d3.forceX(d => d.id % 3 === 0 ? width * 0.3 : width * 0.7).strength(0.05))
+                .force("y", d3.forceY(height / 2).strength(0.05))
+                .on("tick", ticked);
+
+            // Draw links as lines
+            link = g.selectAll(".link")
+                .data(links)
+                .enter()
+                .append("line")
+                .attr("class", "link")
+                .attr("stroke-width", 1);
+
+            // Draw nodes as <g> containing circle + label
+            const nodeGroup = g.selectAll(".node")
+                .data(nodes)
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .call(drag(simulation)); // enable dragging
+
+            nodeGroup.append("circle")
+                .attr("r", 10); // circle radius
+
+            nodeGroup.append("text")
+                .attr("dy", 4) // vertical alignment
+                .attr("text-anchor", "middle") // center text horizontally
+                .text(d => d.id); // show node ID
+
+            // Show label on hover
+            nodeGroup
+                .on("mouseover", function () {
+                    d3.select(this).select("text").style("display", "block");
+                })
+                .on("mouseout", function () {
+                    d3.select(this).select("text").style("display", "none");
+                });
+
+            node = nodeGroup; // save reference for updates
+
+            // Node and Edge counts
+            document.getElementById("graphStats").textContent =
+                `Nodes: ${nodes.length} | Edges: ${links.length}`;
+
+            // Auto-fit after short delay (lets simulation settle first)
+            setTimeout(() => {
+                fitToScreen();    // Zoom/fit graph
+                simulation.stop(); // Stop forces so it doesn’t shrink further
+            }, 500);
+        }
+
+        // Update positions each tick of the simulation
+        function ticked() {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            node
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
+        // Dragging behavior
+        function drag(simulation) {
+            return d3.drag()
+                .on("start", (event, d) => {
+                    if (!event.active) simulation.alphaTarget(0.3).restart(); // add energy
+                    d.fx = d.x;
+                    d.fy = d.y; // fix node in place
+                })
+                .on("drag", (event, d) => {
+                    d.fx = event.x;
+                    d.fy = event.y; // move with cursor
+                })
+                .on("end", (event, d) => {
+                    if (!event.active) simulation.alphaTarget(0); // release energy
+                    d.fx = null;
+                    d.fy = null; // free node
+                });
+        }
+
+        // Fit the graph into the visible SVG viewport
+        function fitToScreen() {
+            const bounds = g.node().getBBox(); // bounding box of graph
+            const fullWidth = bounds.width;
+            const fullHeight = bounds.height;
+            const midX = bounds.x + fullWidth / 2;
+            const midY = bounds.y + fullHeight / 2;
+
+            // compute scale + translation
+            const scale = 0.9 / Math.max(fullWidth / width, fullHeight / height);
+            const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
+
+            // apply zoom transform
+            const transform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+            svg.transition().duration(750).call(zoom.transform, transform);
+        }
+
+        // Reset zoom button → fit graph to screen
+        document.getElementById("resetZoom").addEventListener("click", () => {
+            fitToScreen();
+        });
+    </script>
+</body>
+
+</html>
