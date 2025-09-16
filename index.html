@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>3D Graph</title>
+  <style>
+    body { margin: 0; background: #0b1020; overflow: hidden; }
+    #3d-graph { width: 100vw; height: 100vh; }
+  </style>
+  <!-- D3 is only needed if you want to use d3.scaleOrdinal -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://unpkg.com/3d-force-graph"></script>
+</head>
+<body>
+  <div id="3d-graph"></div>
+
+  <script>
+  (async function () {
+    const graphData = await fetch("without_thresholding.json").then(r => r.json());
+
+    const communities = Array.from(new Set(graphData.nodes.map(d => d.community)));
+    const color = d3.scaleOrdinal(communities, d3.schemeTableau10);
+
+    const Graph = ForceGraph3D()
+      (document.getElementById('3d-graph'))
+      .graphData(graphData)
+      .nodeLabel(d => `${d.id} • community ${d.community}`)
+      .nodeRelSize(4)
+      .linkOpacity(0.4)
+      .backgroundColor('#0b1020');
+
+    // Manual coloring by community
+    Graph.nodeColor(d => color(d.community));
+  })();
+  </script>
+</body>
+</html>
