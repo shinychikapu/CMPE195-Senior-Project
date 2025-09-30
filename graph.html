@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>RAWobserved - Grid Layout Graph (Cytoscape)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            background: #0b0f14;
+            color: #e6ebf2;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #app {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            height: 100vh;
+        }
+
+        #side {
+            padding: 14px;
+            border-right: 1px solid #182130;
+            background: #0e131a;
+            overflow: auto;
+        }
+
+        #stage {
+            position: relative;
+        }
+
+        #cy {
+            position: absolute;
+            inset: 0;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .card {
+            background: #101721;
+            border: 1px solid #1a2636;
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        input[type="file"],
+        input[type="text"],
+        select {
+            width: 100%;
+            background: #0c1218;
+            border: 1px solid #223145;
+            color: #e6ebf2;
+            border-radius: 10px;
+            padding: 8px 10px;
+        }
+
+        label {
+            font-size: 12px;
+            color: #a8b6c7;
+        }
+
+        .tiny {
+            font-size: 11px;
+            color: #94a3b6;
+            line-height: 1.35;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+            max-height: 150px;
+            overflow: auto;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid #1e2a3c;
+            background: #0c1219;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        #err {
+            white-space: pre-wrap;
+            background: #1a0f12;
+            border: 1px solid #3a1d25;
+            color: #ffd6de;
+            border-radius: 10px;
+            padding: 8px;
+            display: none;
+            max-height: 180px;
+            overflow: auto;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 1px solid #223145;
+            background: #0b1016;
+            border-radius: 999px;
+            font-size: 11px;
+            color: #a9b6c8
+        }
+
+        button {
+            background: #182234;
+            border: 1px solid #2a3b56;
+            color: #e6ebf2;
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-weight: 600;
+            cursor: pointer
+        }
+
+        button:hover {
+            background: #1c2940
+        }
+
+        .footer {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            background: #0f1318cc;
+            padding: 6px 10px;
+            border: 1px solid #1b2330;
+            border-radius: 10px;
+            font-size: 12px
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div id="side">
+            <h1>RAWobserved - Grid Layout Graph</h1>
+            <div class="card">
+                <div class="row">
+                    <input id="file" type="file" accept=".RAWobserved,.txt,.tsv" />
+                </div>
+                <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
+                <div id="err"></div>
+            </div>
+
+            <div class="card">
+                <label>Find node</label>
+                <input id="search" type="text" placeholder="Type node id (e.g., 1000000), press Enter" />
+                <div class="tiny">Hover a node to spotlight neighbors. Click a cluster chip to zoom.</div>
+            </div>
+
+            <div class="card">
+                <div class="row" style="gap:6px">
+                    <label style="flex:1">Show inter-cluster edges</label>
+                    <input id="toggleCross" type="checkbox" checked />
+                </div>
+                <div class="row" style="gap:8px">
+                    <label style="min-width:120px">Edge opacity</label>
+                    <input id="edgeAlpha" type="range" min="6" max="100" value="18" />
+                    <span id="edgeAlphaVal" class="tag">0.18</span>
+                </div>
+                <div class="tiny">All nodes & edges are rendered. Use lower opacity to keep dense areas readable.</div>
+            </div>
+
+            <div class="card">
+                <label>Clusters</label>
+                <div id="legend" class="legend"></div>
+            </div>
+        </div>
+
+        <div id="stage">
+            <div id="cy"></div>
+            <div class="footer">Nodes: <span id="nodeCount">0</span> • Edges: <span id="edgeCount">0</span> • Clusters:
+                <span id="comCount">0</span></div>
+        </div>
+    </div>
+
+    <!-- Cytoscape with fallback CDN -->
+    <script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+    <script>if (typeof cytoscape === 'undefined') { document.write('<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"><\/script>') }</script>
+
+    <script>
+        (function () {
+            const $ = id => document.getElementById(id);
+            const fileInput = $('file');
+            const statusEl = $('status');
+            const errEl = $('err');
+            const legend = $('legend');
+            const cyDiv = $('cy');
+            const toggleCross = $('toggleCross');
+            const edgeAlpha = $('edgeAlpha');
+            const edgeAlphaVal = $('edgeAlphaVal');
+            const search = $('search');
+            const nodeCountEl = $('nodeCount');
+            const edgeCountEl = $('edgeCount');
+            const comCountEl = $('comCount');
+
+            let cy = null;
+            let clusters = {};
+            let clusterColors = {};
+            let degrees = {};
+
+            function setStatus(msg) { statusEl.innerHTML = msg; }
+            function showError(msg) { errEl.style.display = 'block'; errEl.textContent = msg; }
+            function clearError() { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+            function colorFor(k) {
+                const hue = (137.508 * k) % 360; // golden angle
+                return `hsl(${hue}, 70%, 55%)`;
+            }
+            function hsla(hsl, a) {
+                return hsl.replace('hsl', 'hsla').replace(')', `, ${a})`);
+            }
+
+            // Simple Label Propagation for clustering (fast, no deps)
+            function lpa(nodes, adj, maxIter = 25) {
+                const label = {};
+                for (const n of nodes) label[n] = n;
+                let changed = true, iter = 0;
+                while (changed && iter < maxIter) {
+                    changed = false; iter++;
+                    const order = nodes.slice();
+                    for (let i = order.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0;[order[i], order[j]] = [order[j], order[i]]; }
+                    for (const n of order) {
+                        const nbrs = adj.get(n) || [];
+                        if (!nbrs.length) continue;
+                        const counts = {};
+                        for (const m of nbrs) { const L = label[m]; counts[L] = (counts[L] || 0) + 1; }
+                        let bestL = label[n], bestC = -1;
+                        for (const L in counts) {
+                            const c = counts[L];
+                            if (c > bestC || (c === bestC && L < bestL)) { bestC = c; bestL = L; }
+                        }
+                        if (bestL !== label[n]) { label[n] = bestL; changed = true; }
+                    }
+                }
+                // compress labels to 0..C-1
+                const map = {}; let idx = 0, part = {};
+                for (const n of nodes) { const L = label[n]; if (map[L] == null) map[L] = idx++; part[n] = map[L]; }
+                return part; // node -> cluster id
+            }
+
+            fileInput.addEventListener('change', e => {
+                clearError();
+                const f = e.target.files?.[0];
+                if (!f) { setStatus('No file selected.'); return; }
+                setStatus('Reading file…');
+                const reader = new FileReader();
+                reader.onerror = () => showError('Failed to read file.');
+                reader.onload = () => {
+                    try {
+                        build(String(reader.result));
+                    } catch (err) {
+                        showError('Error while building graph:\n' + (err?.stack || err));
+                    }
+                };
+                reader.readAsText(f);
+            });
+
+            function build(text) {
+                setStatus('Parsing…');
+                // Parse lines: node1 \t node2 \t weight \n (trailing newline OK)
+                const lines = text.split(/\r?\n/);
+                const nodesSet = new Set();
+                const edgesSet = new Set();
+                const edges = [];
+                const adj = new Map();
+
+                for (const raw of lines) {
+                    if (!raw) continue;                 // includes trailing empty line
+                    const parts = raw.split('\t');
+                    if (parts.length < 2) continue;     // tolerate malformed
+                    const a = (parts[0] || '').trim();
+                    const b = (parts[1] || '').trim();
+                    if (!a || !b) continue;
+
+                    nodesSet.add(a); nodesSet.add(b);
+
+                    // undirected de-dupe key
+                    const key = (a <= b) ? (a + '|' + b) : (b + '|' + a);
+                    if (edgesSet.has(key)) continue;
+                    edgesSet.add(key);
+                    edges.push([a, b]);
+
+                    // adjacency
+                    if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b);
+                    if (!adj.has(b)) adj.set(b, []); adj.get(b).push(a);
+                }
+
+                const nodes = Array.from(nodesSet);
+                if (nodes.length === 0) throw new Error('No nodes parsed. Expected lines like: node1\\tnode2\\tweight');
+
+                // Degrees (for label selection)
+                degrees = {};
+                for (const n of nodes) { degrees[n] = (adj.get(n) || []).length; }
+
+                setStatus('Clustering…');
+                const part = lpa(nodes, adj);
+
+                // Build cluster membership + colors
+                clusters = {}; clusterColors = {};
+                for (const n of nodes) {
+                    const cid = part[n];
+                    (clusters[cid] ||= []).push(n);
+                    if (clusterColors[cid] == null) clusterColors[cid] = colorFor(cid);
+                }
+
+                setStatus('Placing…');
+                // Layout: clusters on a big ring; nodes on small rings
+                const C = Object.keys(clusters).length;
+                const R = Math.max(200, 50 + 15 * Math.sqrt(nodes.length)); // outer radius
+                let k = 0;
+                const positions = {};
+                for (const cidStr of Object.keys(clusters)) {
+                    const cid = Number(cidStr);
+                    const theta = (2 * Math.PI) * (k / C);
+                    const cx = R * Math.cos(theta);
+                    const cy = R * Math.sin(theta);
+
+                    const members = clusters[cid].slice().sort((a, b) => degrees[b] - degrees[a]);
+                    const r = 12 + 3.3 * Math.sqrt(members.length);
+
+                    for (let i = 0; i < members.length; i++) {
+                        const ang = (2 * Math.PI) * (i / Math.max(1, members.length));
+                        const x = cx + r * Math.cos(ang);
+                        const y = cy + r * Math.sin(ang);
+                        positions[members[i]] = { x, y };
+                    }
+                    k++;
+                }
+
+                setStatus('Rendering…');
+
+                // Cytoscape init / reset
+                if (cy) { cy.destroy(); cy = null; }
+                cy = cytoscape({
+                    container: cyDiv,
+                    textureOnViewport: true,
+                    wheelSensitivity: 0.2,
+                    minZoom: 0.02,
+                    maxZoom: 5,
+                    boxSelectionEnabled: false,
+                    autoungrabify: true,
+                    elements: {
+                        nodes: nodes.map(n => ({
+                            data: { id: n, label: n, cid: part[n], degree: degrees[n], color: clusterColors[part[n]] },
+                            position: positions[n]
+                        })),
+                        edges: edges.map(([a, b]) => {
+                            const isIntra = part[a] === part[b];
+                            return {
+                                data: {
+                                    id: a + '|' + b,
+                                    source: a, target: b,
+                                    intra: isIntra ? 1 : 0,
+                                    color: clusterColors[part[a]]
+                                }
+                            };
+                        })
+                    },
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'background-color': 'data(color)',
+                                'width': 6,
+                                'height': 6,
+                                'label': 'data(showLabel)',
+                                'font-size': 8,
+                                'color': '#dfe7f1',
+                                'text-halign': 'center',
+                                'text-valign': 'center',
+                                'text-margin-y': -9
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'line-color': 'data(edgeColor)',
+                                'curve-style': 'bezier',
+                                'width': 'mapData(intra, 0, 1, 0.45, 0.7)',
+                                'opacity': 1
+                            }
+                        },
+                        { selector: '.dim', style: { 'background-color': '#2a3346' } },
+                        { selector: '.hiddenCross', style: { 'display': 'none' } }
+                    ]
+                });
+
+                // Edge coloring with opacity control (inter lighter)
+                function applyEdgeAppearance() {
+                    const base = Number(edgeAlpha.value) / 100;
+                    const inter = Math.max(0.06, base * 0.7);
+                    cy.edges().forEach(e => {
+                        const intra = e.data('intra') === 1;
+                        const srcColor = e.source().data('color'); // hsl(...)
+                        const col = hsla(srcColor, intra ? base : inter);
+                        e.data('edgeColor', col);
+                        e.style('line-color', col);
+                    });
+                    edgeAlphaVal.textContent = (Number(edgeAlpha.value) / 100).toFixed(2);
+                }
+
+                // Label density: top ~45% by degree get labels
+                const keepPct = 0.45;
+                const sorted = nodes.slice().sort((a, b) => degrees[b] - degrees[a]);
+                const cutoff = Math.max(5, Math.round(sorted.length * keepPct));
+                const showSet = new Set(sorted.slice(0, cutoff));
+                cy.nodes().forEach(n => {
+                    n.data('showLabel', showSet.has(n.id()) ? n.id() : '');
+                });
+
+                applyEdgeAppearance();
+
+                // Inter-cluster toggle
+                function applyCrossToggle() {
+                    const showCross = toggleCross.checked;
+                    cy.edges().forEach(e => {
+                        const intra = e.data('intra') === 1;
+                        if (!intra && !showCross) e.addClass('hiddenCross');
+                        else e.removeClass('hiddenCross');
+                    });
+                }
+                toggleCross.addEventListener('change', applyCrossToggle);
+                edgeAlpha.addEventListener('input', applyEdgeAppearance);
+
+                // Hover spotlight
+                const dimColor = '#2a3346';
+                cy.on('mouseover', 'node', ev => {
+                    const n = ev.target;
+                    const neigh = n.closedNeighborhood().nodes();
+                    cy.nodes().not(neigh).addClass('dim');
+                    cy.edges().not(n.connectedEdges()).addClass('hiddenCross'); // temporarily hide non-neighborhood
+                });
+                cy.on('mouseout', 'node', () => {
+                    cy.nodes().removeClass('dim');
+                    cy.edges().removeClass('hiddenCross');
+                    applyCrossToggle(); // re-apply user toggle
+                });
+
+                // Search focus
+                search.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        const q = search.value.trim();
+                        if (!q) return;
+                        const node = cy.getElementById(q);
+                        if (node && node.isNode()) {
+                            cy.animate({ center: { eles: node }, zoom: 1.2 }, { duration: 500 });
+                            node.flashClass('highlight', 500);
+                        } else {
+                            setStatus(`Node "${q}" not found.`);
+                        }
+                    }
+                };
+
+                // Cluster chips
+                legend.innerHTML = '';
+                const entries = Object.keys(clusters).map(c => ({ cid: Number(c), size: clusters[c].length })).sort((a, b) => b.size - a.size);
+                for (const { cid, size } of entries) {
+                    const chip = document.createElement('div');
+                    chip.className = 'chip';
+                    const dot = document.createElement('div'); dot.className = 'dot'; dot.style.background = clusterColors[cid];
+                    const span = document.createElement('span'); span.textContent = `Cluster ${cid} • ${size}`;
+                    chip.appendChild(dot); chip.appendChild(span);
+                    chip.title = 'Zoom to this cluster';
+                    chip.onclick = () => {
+                        const eles = cy.nodes().filter(n => n.data('cid') === cid);
+                        cy.animate({ fit: { eles, padding: 50 } }, { duration: 500 });
+                    };
+                    legend.appendChild(chip);
+                }
+
+                // Counters & view
+                nodeCountEl.textContent = nodes.length;
+                edgeCountEl.textContent = edges.length;
+                comCountEl.textContent = Object.keys(clusters).length;
+                cy.fit(50);
+
+                setStatus(`Loaded ✓ Nodes: ${nodes.length}, Edges: ${edges.length}, Clusters: ${Object.keys(clusters).length}`);
+            }
+
+            // If Cytoscape failed to load at all, surface that loudly
+            window.addEventListener('load', () => {
+                if (typeof cytoscape === 'undefined') {
+                    showError('Cytoscape library failed to load. Check your internet connection or any content blockers, then reload.');
+                    setStatus('Unable to start.');
+                }
+            });
+        })();
+    </script>
+</body>
+
+</html>

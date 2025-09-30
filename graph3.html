@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>RAWobserved - Weight-Neighborhood Graph (strong-edge layout, draw all)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            background: #0b0f14;
+            color: #e6ebf2;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #app {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            height: 100vh;
+        }
+
+        #side {
+            padding: 14px;
+            border-right: 1px solid #182130;
+            background: #0e131a;
+            overflow: auto;
+        }
+
+        #stage {
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        #canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .card {
+            background: #101721;
+            border: 1px solid #1a2636;
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        input[type="file"],
+        input[type="text"] {
+            width: 100%;
+            background: #0c1218;
+            border: 1px solid #223145;
+            color: #e6ebf2;
+            border-radius: 10px;
+            padding: 8px 10px;
+        }
+
+        label {
+            font-size: 12px;
+            color: #a8b6c7;
+        }
+
+        .tiny {
+            font-size: 11px;
+            color: #94a3b6;
+            line-height: 1.35;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 1px solid #223145;
+            background: #0b1016;
+            border-radius: 999px;
+            font-size: 11px;
+            color: #a9b6c8
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+            max-height: 150px;
+            overflow: auto;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid #1a2f46;
+            background: #0c1219;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        #err {
+            white-space: pre-wrap;
+            background: #1a0f12;
+            border: 1px solid #3a1d25;
+            color: #ffd6de;
+            border-radius: 10px;
+            padding: 8px;
+            display: none;
+            max-height: 180px;
+            overflow: auto;
+        }
+
+        .footer {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            background: #0f1318cc;
+            padding: 6px 10px;
+            border: 1px solid #1b2330;
+            border-radius: 10px;
+            font-size: 12px
+        }
+
+        button {
+            background: #182234;
+            border: 1px solid #2a3b56;
+            color: #e6ebf2;
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-weight: 600;
+            cursor: pointer
+        }
+
+        button:hover {
+            background: #1c2940
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div id="side">
+            <h1>RAWobserved - Weight-Neighborhood Graph (strong-edge layout, draw all)</h1>
+
+            <div class="card">
+                <div class="row"><input id="file" type="file" accept=".RAWobserved,.txt,.tsv" /></div>
+                <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
+                <div id="err"></div>
+            </div>
+
+            <div class="card">
+                <label>Find node</label>
+                <input id="search" type="text" placeholder="Type node id … (e.g., 1000000) and press Enter" />
+                <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: highlight neighbors • Click a cluster chip
+                    to zoom.</div>
+            </div>
+
+            <div class="card">
+                <div class="row"><label style="min-width:170px">Edge opacity (base)</label><input id="edgeAlpha"
+                        type="range" min="2" max="40" value="10" /><span id="edgeAlphaVal" class="tag">0.10</span></div>
+                <div class="row"><label style="min-width:170px">Opacity weight gamma</label><input id="alphaGamma"
+                        type="range" min="20" max="300" value="140" /><span id="alphaGammaVal" class="tag">1.40</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Label density</label><input id="labelPct" type="range"
+                        min="0" max="40" value="10" /><span id="labelPctVal" class="tag">10%</span></div>
+                <div class="row" style="gap:6px"><label style="flex:1">Show inter-cluster edges</label><input
+                        id="toggleCross" type="checkbox" checked /></div>
+            </div>
+
+            <div class="card">
+                <div class="row"><label style="min-width:170px">Iterations</label><input id="iters" type="range"
+                        min="300" max="7000" value="2600" /><span id="itersVal" class="tag">2600</span></div>
+                <div class="row"><label style="min-width:170px">Repulsion</label><input id="kRepel" type="range"
+                        min="80" max="1400" value="420" /><span id="kRepelVal" class="tag">420</span></div>
+                <div class="row"><label style="min-width:170px">Spring base (k)</label><input id="kSpring" type="range"
+                        min="10" max="240" value="110" /><span id="kSpringVal" class="tag">1.10</span></div>
+                <div class="row"><label style="min-width:170px">Gravity to center</label><input id="kGravity"
+                        type="range" min="0" max="200" value="35" /><span id="kGravityVal" class="tag">0.35</span></div>
+                <div class="row"><label style="min-width:170px">Weight exponent (β)</label><input id="wExp" type="range"
+                        min="50" max="260" value="170" /><span id="wExpVal" class="tag">1.70</span></div>
+                <div class="row"><label style="min-width:170px">Edge length scale</label><input id="lenScale"
+                        type="range" min="5" max="200" value="55" /><span id="lenScaleVal" class="tag">0.55</span></div>
+                <div class="row"><label style="min-width:170px">Layout weight percentile</label><input id="wPercentile"
+                        type="range" min="0" max="95" value="75" /><span id="wPercentileVal" class="tag">75th</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Weight influence (coloring)</label><input
+                        id="wInfluence" type="range" min="0" max="100" value="70" /><span id="wInfluenceVal"
+                        class="tag">70%</span></div>
+                <div class="row"><button id="relayout">Re-layout with current settings</button></div>
+                <div class="tiny">Forces use only edges ≥ chosen percentile; drawing still includes <b>all</b> edges
+                    (weak ones fade).</div>
+            </div>
+
+            <div class="card">
+                <label>Clusters (color/legend)</label>
+                <div id="legend" class="legend"></div>
+            </div>
+        </div>
+
+        <div id="stage">
+            <canvas id="canvas"></canvas>
+            <div class="footer">Nodes: <span id="nodeCount">0</span> • Edges: <span id="edgeCount">0</span> • Clusters:
+                <span id="comCount">0</span></div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            // ---------- DOM ----------
+            const $ = id => document.getElementById(id);
+            const stage = $('stage'), canvas = $('canvas'), ctx = canvas.getContext('2d');
+            const fileInput = $('file'), statusEl = $('status'), errEl = $('err');
+            const search = $('search'), legend = $('legend');
+            const edgeAlpha = $('edgeAlpha'), edgeAlphaVal = $('edgeAlphaVal');
+            const alphaGamma = $('alphaGamma'), alphaGammaVal = $('alphaGammaVal');
+            const labelPct = $('labelPct'), labelPctVal = $('labelPctVal');
+            const toggleCross = $('toggleCross');
+            const iters = $('iters'), itersVal = $('itersVal');
+            const kSpring = $('kSpring'), kSpringVal = $('kSpringVal');
+            const kRepel = $('kRepel'), kRepelVal = $('kRepelVal');
+            const kGravity = $('kGravity'), kGravityVal = $('kGravityVal');
+            const wExp = $('wExp'), wExpVal = $('wExpVal');
+            const lenScale = $('lenScale'), lenScaleVal = $('lenScaleVal');
+            const wPercentile = $('wPercentile'), wPercentileVal = $('wPercentileVal');
+            const wInfluence = $('wInfluence'), wInfluenceVal = $('wInfluenceVal');
+            const relayoutBtn = $('relayout');
+            const nodeCountEl = $('nodeCount'), edgeCountEl = $('edgeCount'), comCountEl = $('comCount');
+
+            // ---------- State ----------
+            let nodes = [], indexOf = new Map(), clusters = {}, clusterOf = {}, clusterColors = {}, degrees = {}, edges = [], adjacency = new Map();
+            let edgesW = [];       // [{a,b,w,n}]
+            let strongEdges = [];  // references into edgesW used for forces
+            let weightsNorm = [];  // list of normalized weights for percentile threshold
+            let wMin = 1, wMax = 1;
+            let N = 0, pos = [], vel = [], cam = { x: 0, y: 0, scale: 1 }, hoverIdx = -1;
+            let viewW = 0, viewH = 0, dpr = 1;
+
+            // ---------- Utils ----------
+            const TAU = Math.PI * 2;
+            const clamp = (v, min, max) => v < min ? min : (v > max ? max : v);
+            const rand = (a, b) => a + Math.random() * (b - a);
+            const colorFor = k => `hsl(${(137.508 * k) % 360},70%,55%)`;
+            const hsla = (h, a) => h.replace('hsl', 'hsla').replace(')', `, ${a})`);
+            const setStatus = msg => statusEl.innerHTML = msg;
+            const showError = msg => { errEl.style.display = 'block'; errEl.textContent = msg; };
+            const clearError = () => { errEl.style.display = 'none'; errEl.textContent = ''; };
+
+            // Weighted LPA (for colors only)
+            function lpaWeighted(arr, adj, weights, influence = 0.7, maxIter = 25) {
+                const label = Object.create(null); arr.forEach(n => label[n] = n);
+                let changed = true, it = 0;
+                while (changed && it < maxIter) {
+                    changed = false; it++;
+                    const order = arr.slice(); for (let i = order.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0;[order[i], order[j]] = [order[j], order[i]]; }
+                    for (const n of order) {
+                        const nbrs = adj.get(n) || []; if (!nbrs.length) continue;
+                        const score = Object.create(null);
+                        for (const m of nbrs) {
+                            const L = label[m]; const w = (weights.get(n)?.get(m) ?? 1);
+                            score[L] = (score[L] || 0) + (1 - influence) * 1 + influence * w;
+                        }
+                        let best = label[n], sc = -Infinity;
+                        for (const L in score) { const s = score[L]; if (s > sc || (s === sc && L < best)) { sc = s; best = L; } }
+                        if (best !== label[n]) { label[n] = best; changed = true; }
+                    }
+                }
+                const map = Object.create(null); let idx = 0; const part = Object.create(null);
+                for (const n of arr) { const L = label[n]; if (map[L] == null) map[L] = idx++; part[n] = map[L]; }
+                return part;
+            }
+
+            // ---------- Build ----------
+            fileInput.addEventListener('change', e => {
+                clearError();
+                const f = e.target.files && e.target.files[0]; if (!f) { setStatus('No file selected.'); return; }
+                setStatus('Reading…');
+                const r = new FileReader();
+                r.onerror = () => showError('Failed to read file.');
+                r.onload = () => { try { build(String(r.result || '')); } catch (err) { showError('Error: ' + (err?.stack || err)); } };
+                r.readAsText(f);
+            });
+
+            function build(text) {
+                setStatus('Parsing…');
+                const lines = text.split(/\r?\n/);
+                const nodeSet = new Set(), edgeSet = new Set();
+                adjacency = new Map(); edges = []; edgesW = []; wMin = Infinity; wMax = -Infinity;
+
+                for (const raw of lines) {
+                    if (!raw) continue;
+                    const p = raw.split('\t'); if (p.length < 2) continue;
+                    const a = (p[0] || '').trim(), b = (p[1] || '').trim(); if (!a || !b) continue;
+                    const wVal = (p[2] !== undefined && p[2] !== '' ? Number(p[2]) : 1);
+                    const w = isFinite(wVal) ? wVal : 1;
+
+                    nodeSet.add(a); nodeSet.add(b);
+                    const key = (a <= b) ? a + '|' + b : b + '|' + a; if (edgeSet.has(key)) continue;
+                    edgeSet.add(key); edges.push([a, b]); edgesW.push({ a, b, w });
+                    wMin = Math.min(wMin, w); wMax = Math.max(wMax, w);
+
+                    if (!adjacency.has(a)) adjacency.set(a, new Set());
+                    if (!adjacency.has(b)) adjacency.set(b, new Set());
+                    adjacency.get(a).add(b); adjacency.get(b).add(a);
+                }
+
+                nodes = Array.from(nodeSet); if (!nodes.length) throw new Error('No nodes parsed. Expected lines like: node1\\tnode2\\tweight');
+                N = nodes.length;
+
+                // normalize weights -> [0,1]
+                const span = (wMax - wMin) || 1;
+                weightsNorm = []; for (const e of edgesW) { e.n = (e.w - wMin) / span; weightsNorm.push(e.n); }
+                weightsNorm.sort((a, b) => a - b);
+
+                // weight maps & weighted degree
+                const wMap = new Map(); for (const n of nodes) wMap.set(n, new Map());
+                for (const e of edgesW) { wMap.get(e.a).set(e.b, e.n); wMap.get(e.b).set(e.a, e.n); }
+                degrees = {}; for (const n of nodes) { let d = 0; for (const m of (adjacency.get(n) || [])) d += (wMap.get(n).get(m) ?? 1); degrees[n] = d; }
+
+                // clustering (colors only)
+                const part = lpaWeighted(nodes, adjacency, wMap, Number(wInfluence.value) / 100, 25);
+                clusters = {}; clusterColors = {}; clusterOf = {};
+                for (const n of nodes) { const c = part[n]; (clusters[c] || (clusters[c] = [])).push(n); clusterOf[n] = c; if (clusterColors[c] == null) clusterColors[c] = colorFor(c); }
+                const order = Object.keys(clusters).map(c => ({ c: +c, size: clusters[c].length })).sort((a, b) => b.size - a.size).map(o => o.c);
+                order.forEach(c => clusters[c].sort((a, b) => degrees[b] - degrees[a] || (a < b ? -1 : 1)));
+                nodes = []; order.forEach(c => nodes.push(...clusters[c])); indexOf = new Map(nodes.map((id, i) => [id, i]));
+
+                // random scatter init (no ring)
+                pos = new Array(N); vel = new Array(N);
+                const spread = Math.min(viewW, viewH) || 1000;
+                for (let i = 0; i < N; i++) { pos[i] = { x: rand(-spread * 0.25, spread * 0.25), y: rand(-spread * 0.25, spread * 0.25) }; vel[i] = { x: 0, y: 0 }; }
+                cam.x = 0; cam.y = 0; cam.scale = 1;
+
+                // strong edges for layout
+                rebuildStrongEdges();
+
+                // legend/counters
+                legend.innerHTML = '';
+                for (const c of order) {
+                    const chip = document.createElement('div'); chip.className = 'chip';
+                    const dot = document.createElement('div'); dot.className = 'dot'; dot.style.background = clusterColors[c];
+                    const span = document.createElement('span'); span.textContent = `Cluster ${c} • ${clusters[c].length}`;
+                    chip.appendChild(dot); chip.appendChild(span);
+                    chip.onclick = () => zoomToCluster(c);
+                    legend.appendChild(chip);
+                }
+                nodeCountEl.textContent = N; edgeCountEl.textContent = edges.length; comCountEl.textContent = order.length;
+
+                setStatus('Laying out (strong-edge forces)…');
+                runForces(); setStatus('Rendered ✓');
+                resize();
+            }
+
+            // compute percentile cutoff and cache strong edges used by layout
+            function rebuildStrongEdges() {
+                const p = Number(wPercentile.value); // 0..95
+                const idx = Math.floor(weightsNorm.length * (p / 100));
+                const cut = weightsNorm[Math.max(0, Math.min(weightsNorm.length - 1, idx))] ?? 0;
+                strongEdges = edgesW.filter(e => e.n >= cut);
+                wPercentileVal.textContent = `${p}th`;
+            }
+
+            // ---------- Global forces on strong edges only ----------
+            function runForces() {
+                const ITER = Number(iters.value);
+                const kEdgeBase = Number(kSpring.value) / 100;
+                const kRep = Number(kRepel.value);
+                const kG = Number(kGravity.value) / 100;
+                const beta = Number(wExp.value) / 100;
+                const lenS = Number(lenScale.value) / 100;
+                const dt = 0.02;
+
+                for (let it = 0; it < ITER; it++) {
+                    for (let i = 0; i < N; i++) { vel[i].x *= 0.86; vel[i].y *= 0.86; }
+
+                    // node-node repulsion (O(N^2), OK for ~250)
+                    for (let i = 0; i < N; i++) {
+                        for (let j = i + 1; j < N; j++) {
+                            let dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+                            let d2 = dx * dx + dy * dy;
+                            if (d2 < 1e-4) { pos[i].x += Math.random(); pos[i].y += Math.random(); d2 = 1; }
+                            const inv = 1 / Math.sqrt(d2), f = kRep * inv * inv;
+                            const fx = f * dx * inv, fy = f * dy * inv;
+                            vel[i].x += fx * dt; vel[i].y += fy * dt; vel[j].x -= fx * dt; vel[j].y -= fy * dt;
+                        }
+                    }
+
+                    // springs on strong edges only
+                    for (const e of strongEdges) {
+                        const i = indexOf.get(e.a), j = indexOf.get(e.b);
+                        const dx = pos[j].x - pos[i].x, dy = pos[j].y - pos[i].y;
+                        const dist = Math.max(0.001, Math.hypot(dx, dy));
+                        const wEff = Math.pow(Math.max(0, e.n), beta);
+                        const ideal = (28 * lenS) / (0.12 + wEff);      // heavy -> much shorter
+                        const kEdge = kEdgeBase * (0.25 + 0.75 * wEff); // heavy -> stronger
+                        const f = kEdge * (dist - ideal);
+                        const fx = f * dx / dist, fy = f * dy / dist;
+                        vel[i].x += fx * dt; vel[i].y += fy * dt; vel[j].x -= fx * dt; vel[j].y -= fy * dt;
+                    }
+
+                    if (kG > 0) { for (let i = 0; i < N; i++) { vel[i].x += (-pos[i].x * kG) * dt; vel[i].y += (-pos[i].y * kG) * dt; } }
+
+                    for (let i = 0; i < N; i++) { pos[i].x += vel[i].x * dt; pos[i].y += vel[i].y * dt; }
+                }
+                draw();
+            }
+
+            // ---------- Rendering & sizing ----------
+            function resize() {
+                const rect = stage.getBoundingClientRect();
+                viewW = Math.max(1, rect.width | 0); viewH = Math.max(1, rect.height | 0);
+                dpr = Math.max(1, window.devicePixelRatio || 1);
+                canvas.width = viewW * dpr; canvas.height = viewH * dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                draw();
+            }
+            window.addEventListener('resize', resize);
+            new ResizeObserver(resize).observe(stage);
+
+            function worldToScreen(x, y) { const cx = viewW / 2, cy = viewH / 2; return { x: Math.round(cx + (x + cam.x) * cam.scale), y: Math.round(cy + (y + cam.y) * cam.scale) }; }
+            function screenToWorld(sx, sy) { const cx = viewW / 2, cy = viewH / 2; return { x: (sx - cx) / cam.scale - cam.x, y: (sy - cy) / cam.scale - cam.y }; }
+            function clearCanvas() { ctx.clearRect(0, 0, viewW, viewH); }
+
+            function draw() {
+                clearCanvas(); if (!nodes.length) return;
+
+                const showCross = toggleCross.checked;
+                const alphaBase = Number(edgeAlpha.value) / 100;
+                const gamma = Number(alphaGamma.value) / 100;
+                const beta = Number(wExp.value) / 100;
+
+                // edges: draw ALL (weak ones faded)
+                ctx.lineWidth = Math.max(0.5, 0.6 * cam.scale);
+                for (const e of edgesW) {
+                    const i = indexOf.get(e.a), j = indexOf.get(e.b);
+                    const ca = clusterOf[e.a], cb = clusterOf[e.b];
+                    const intra = (ca === cb); if (!intra && !showCross) continue;
+                    const p1 = worldToScreen(pos[i].x, pos[i].y), p2 = worldToScreen(pos[j].x, pos[j].y);
+                    const wEff = Math.pow(Math.max(0, e.n), beta);
+                    const a = (intra ? alphaBase : Math.max(0.02, alphaBase * 0.35)) * Math.pow(Math.max(0.02, wEff), gamma);
+                    ctx.strokeStyle = hsla(clusterColors[ca], clamp(a, 0.02, 1));
+                    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                }
+
+                // nodes
+                const r = Math.max(2, 3 * cam.scale);
+                for (let i = 0; i < N; i++) {
+                    const p = worldToScreen(pos[i].x, pos[i].y);
+                    ctx.fillStyle = clusterColors[clusterOf[nodes[i]]];
+                    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
+                }
+
+                // labels (top weighted-degree)
+                const pct = Number(labelPct.value); labelPctVal.textContent = pct + '%';
+                const showCount = Math.max(3, Math.round(N * pct / 100));
+                const top = nodes.slice().sort((a, b) => degrees[b] - degrees[a] || (a < b ? -1 : 1)).slice(0, showCount);
+                if (cam.scale > 0.6 || pct >= 10) {
+                    ctx.font = `${Math.max(10, Math.floor(11 * cam.scale))}px system-ui, sans-serif`;
+                    ctx.textBaseline = 'middle'; ctx.fillStyle = '#e6edf8';
+                    for (const id of top) { const i = indexOf.get(id), p = worldToScreen(pos[i].x, pos[i].y); ctx.fillText(id, p.x + 6, p.y); }
+                }
+
+                // hover spotlight
+                if (hoverIdx >= 0) {
+                    const nid = nodes[hoverIdx], neigh = adjacency.get(nid) || new Set();
+                    ctx.lineWidth = Math.max(1.2, 1.6 * cam.scale); ctx.strokeStyle = '#ffffffbb';
+                    for (const m of neigh) {
+                        const ia = hoverIdx, ib = indexOf.get(m);
+                        const p1 = worldToScreen(pos[ia].x, pos[ia].y), p2 = worldToScreen(pos[ib].x, pos[ib].y);
+                        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                    }
+                    const p = worldToScreen(pos[hoverIdx].x, pos[hoverIdx].y);
+                    ctx.strokeStyle = '#ffffffaa'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, r + 2, 0, TAU); ctx.stroke();
+                }
+            }
+
+            // ---------- Interaction ----------
+            let panning = false, lastX = 0, lastY = 0;
+            canvas.addEventListener('mousedown', e => { panning = true; lastX = e.clientX; lastY = e.clientY; });
+            window.addEventListener('mouseup', () => panning = false);
+            window.addEventListener('mousemove', e => {
+                if (!nodes.length) return;
+                if (panning) { cam.x += (e.clientX - lastX) / cam.scale; cam.y += (e.clientY - lastY) / cam.scale; lastX = e.clientX; lastY = e.clientY; draw(); return; }
+                let best = -1, bestD = 18;
+                for (let i = 0; i < N; i++) { const p = worldToScreen(pos[i].x, pos[i].y); const d = Math.hypot(p.x - e.clientX, p.y - e.clientY); if (d < bestD) { bestD = d; best = i; } }
+                hoverIdx = best; draw();
+            });
+            canvas.addEventListener('wheel', e => {
+                if (!nodes.length) return; e.preventDefault();
+                const before = screenToWorld(e.clientX, e.clientY), zoom = Math.exp(-e.deltaY * 0.0012);
+                cam.scale = clamp(cam.scale * zoom, 0.2, 6);
+                const after = screenToWorld(e.clientX, e.clientY);
+                cam.x += before.x - after.x; cam.y += before.y - after.y; draw();
+            }, { passive: false });
+
+            // ---------- Controls ----------
+            const rdraw = () => draw();
+            edgeAlpha.addEventListener('input', () => { edgeAlphaVal.textContent = (Number(edgeAlpha.value) / 100).toFixed(2); draw(); });
+            alphaGamma.addEventListener('input', () => { alphaGammaVal.textContent = (Number(alphaGamma.value) / 100).toFixed(2); draw(); });
+            labelPct.addEventListener('input', () => { labelPctVal.textContent = labelPct.value + '%'; draw(); });
+            toggleCross.addEventListener('change', draw);
+            iters.addEventListener('input', () => itersVal.textContent = iters.value);
+            kSpring.addEventListener('input', () => kSpringVal.textContent = (Number(kSpring.value) / 100).toFixed(2));
+            kRepel.addEventListener('input', () => kRepelVal.textContent = kRepel.value);
+            kGravity.addEventListener('input', () => kGravityVal.textContent = (Number(kGravity.value) / 100).toFixed(2));
+            wExp.addEventListener('input', () => wExpVal.textContent = (Number(wExp.value) / 100).toFixed(2));
+            lenScale.addEventListener('input', () => lenScaleVal.textContent = (Number(lenScale.value) / 100).toFixed(2));
+            wInfluence.addEventListener('input', () => wInfluenceVal.textContent = wInfluence.value + '%');
+            wPercentile.addEventListener('input', () => { wPercentileVal.textContent = wPercentile.value + 'th'; rebuildStrongEdges(); });
+
+            relayoutBtn.addEventListener('click', () => {
+                setStatus('Re-layout (strong-edge forces)…');
+                // fresh scatter to avoid local minima when changing sliders heavily
+                const spread = Math.min(viewW, viewH) || 1000;
+                for (let i = 0; i < N; i++) { pos[i].x = rand(-spread * 0.25, spread * 0.25); pos[i].y = rand(-spread * 0.25, spread * 0.25); vel[i].x = vel[i].y = 0; }
+                rebuildStrongEdges();
+                runForces();
+                setStatus('Rendered ✓');
+            });
+
+            search.addEventListener('keydown', e => {
+                if (e.key !== 'Enter' || !nodes.length) return;
+                const q = search.value.trim(); if (!indexOf.has(q)) { setStatus(`Node "${q}" not found.`); return; }
+                const i = indexOf.get(q); hoverIdx = i; const p = pos[i]; cam.x = -p.x; cam.y = -p.y; cam.scale = 1.8; draw();
+            });
+
+            function zoomToCluster(cid) {
+                const ids = (clusters[cid] || []); if (!ids.length) return;
+                let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+                for (const n of ids) { const i = indexOf.get(n); xmin = Math.min(xmin, pos[i].x); xmax = Math.max(xmax, pos[i].x); ymin = Math.min(ymin, pos[i].y); ymax = Math.max(ymax, pos[i].y); }
+                const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2; cam.x = -cx; cam.y = -cy; cam.scale = 1.6; draw();
+            }
+
+            // ---------- Init ----------
+            function init() {
+                edgeAlphaVal.textContent = (Number(edgeAlpha.value) / 100).toFixed(2);
+                alphaGammaVal.textContent = (Number(alphaGamma.value) / 100).toFixed(2);
+                labelPctVal.textContent = labelPct.value + '%';
+                itersVal.textContent = iters.value;
+                kSpringVal.textContent = (Number(kSpring.value) / 100).toFixed(2);
+                kRepelVal.textContent = kRepel.value;
+                kGravityVal.textContent = (Number(kGravity.value) / 100).toFixed(2);
+                wExpVal.textContent = (Number(wExp.value) / 100).toFixed(2);
+                lenScaleVal.textContent = (Number(lenScale.value) / 100).toFixed(2);
+                wInfluenceVal.textContent = wInfluence.value + '%';
+                wPercentileVal.textContent = wPercentile.value + 'th';
+                setStatus('Choose a .RAWobserved file to begin.');
+                new ResizeObserver(() => resize()).observe(stage);
+                resize();
+            }
+            window.addEventListener('load', init);
+        })();
+    </script>
+</body>
+
+</html>

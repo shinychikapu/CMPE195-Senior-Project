@@ -117,13 +117,13 @@
 
         ////////////////////////////////////////////////////////////////
         // Automatically load default file on page load (for debugging)
-        fetch("chr1_1mb.RAWobserved")
-            .then(response => response.text())   // load as plain text
-            .then(text => {
-                document.getElementById("fileInput").disabled = true; // disable manual input
-                processData(text); // parse and draw graph
-            })
-            .catch(error => console.error("Auto-load failed:", error));
+        // fetch("chr1_1mb.RAWobserved")
+        //     .then(response => response.text())   // load as plain text
+        //     .then(text => {
+        //         document.getElementById("fileInput").disabled = true; // disable manual input
+        //         processData(text); // parse and draw graph
+        //     })
+        //     .catch(error => console.error("Auto-load failed:", error));
         ////////////////////////////////////////////////////////////////
 
         // File input handler (manual upload)
