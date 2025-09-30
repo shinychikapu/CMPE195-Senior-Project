@@ -43,8 +43,12 @@
 
 <body>
     <h2>Upload a .RAWobserved data file</h2>
-    <input type="file" id="fileInput" />
+    <input type="file" id="fileInput" accept=".RAWobserved" />
     <button id="resetZoom">Reset Zoom</button>
+
+    <label for="thresholdInput">Edge weight threshold:</label>
+    <input type="number" id="thresholdInput" placeholder="0" value="0" />
+
     <p id="graphStats">Nodes: 0 | Edges: 0</p>
     <svg id="graph" width="100%" height="900"></svg>
 
@@ -62,9 +66,17 @@
         svg.call(zoom);
 
         let simulation, node, link; // globals for simulation and node/link selections
+        let currentFileText = null; // ✅ store the loaded file text
+
+        // ✅ Read threshold value from textbox (default to 0 if blank)
+        function getThreshold() {
+            const inputVal = document.getElementById("thresholdInput").value;
+            return inputVal === "" ? 0 : parseFloat(inputVal);
+        }
 
         // Shared function: parse RAWobserved file text and build graph
         function processData(text) {
+            currentFileText = text; // ✅ update global copy of file data
             const lines = text.trim().split("\n"); // split file into lines
             const nodeSet = new Set(); // hold unique node IDs
             const links = []; // hold edges
@@ -95,24 +107,23 @@
             // Convert Set into array of node objects {id: "nodeID"}
             const nodes = Array.from(nodeSet).map(id => ({ id }));
 
-            // Filter out weak edges (example: only keep weight > 10000)
-            // const filteredLinks = links.filter(d => d.weight > 10000);
-            // Call drawGraph with nodes + filtered links
-            // drawGraph(nodes, filteredLinks);
+            // ✅ Use threshold from textbox
+            const threshold = getThreshold();
+            const filteredLinks = links.filter(d => d.weight > threshold);
 
-            // // Call drawGraph with nodes + links
-            drawGraph(nodes, links);
+            // Call drawGraph with nodes + filtered links
+            drawGraph(nodes, filteredLinks);
         }
 
         ////////////////////////////////////////////////////////////////
         // Automatically load default file on page load (for debugging)
-        // fetch("chr1_1mb.RAWobserved")
-        //     .then(response => response.text())   // load as plain text
-        //     .then(text => {
-        //         document.getElementById("fileInput").disabled = true; // disable manual input
-        //         processData(text); // parse and draw graph
-        //     })
-        //     .catch(error => console.error("Auto-load failed:", error));
+        fetch("chr1_1mb.RAWobserved")
+            .then(response => response.text())   // load as plain text
+            .then(text => {
+                document.getElementById("fileInput").disabled = true; // disable manual input
+                processData(text); // parse and draw graph
+            })
+            .catch(error => console.error("Auto-load failed:", error));
         ////////////////////////////////////////////////////////////////
 
         // File input handler (manual upload)
@@ -127,6 +138,13 @@
             reader.readAsText(file); // read file as plain text
         });
 
+        // ✅ Auto-reload graph when threshold changes
+        document.getElementById("thresholdInput").addEventListener("input", () => {
+            if (currentFileText) {
+                processData(currentFileText); // redraw with new threshold
+            }
+        });
+
         // Draw the graph with nodes + links
         function drawGraph(nodes, links) {
             g.selectAll("*").remove(); // clear old content
@@ -134,14 +152,11 @@
 
             // Create force simulation
             simulation = d3.forceSimulation(nodes)
-                .force("link", d3.forceLink(links).id(d => d.id).distance(300))
-                .force("charge", d3.forceManyBody().strength(-2000))
-                .force("collision", d3.forceCollide().radius(18))
-                .force("center", d3.forceCenter(width / 2, height / 2))
-                // Extra forces to spread nodes into clusters
-                .force("x", d3.forceX(d => d.id % 3 === 0 ? width * 0.3 : width * 0.7).strength(0.05))
-                .force("y", d3.forceY(height / 2).strength(0.05))
-                .on("tick", ticked);
+                .force("link", d3.forceLink(links).id(d => d.id).distance(300)) // link distance
+                .force("charge", d3.forceManyBody().strength(-2000)) // node repulsion
+                .force("collision", d3.forceCollide().radius(18)) // prevent overlap
+                .force("center", d3.forceCenter(width / 2, height / 2)) // center graph
+                .on("tick", ticked); // update positions every tick
 
             // Draw links as lines
             link = g.selectAll(".link")
@@ -159,8 +174,7 @@
                 .attr("class", "node")
                 .call(drag(simulation)); // enable dragging
 
-            nodeGroup.append("circle")
-                .attr("r", 10); // circle radius
+            nodeGroup.append("circle").attr("r", 10); // circle radius
 
             nodeGroup.append("text")
                 .attr("dy", 4) // vertical alignment
@@ -197,8 +211,7 @@
                 .attr("x2", d => d.target.x)
                 .attr("y2", d => d.target.y);
 
-            node
-                .attr("transform", d => `translate(${d.x},${d.y})`);
+            node.attr("transform", d => `translate(${d.x},${d.y})`);
         }
 
         // Dragging behavior
