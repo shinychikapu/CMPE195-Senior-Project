@@ -14,7 +14,6 @@
     font-size: 13px; opacity: 0; transition: opacity 0.2s;
   }
   button { margin: 5px; }
-  #output { margin-top: 20px; white-space: pre; font-family: monospace; max-height: 200px; overflow: auto; }
   .selection { fill: rgba(0,0,255,0.1); stroke: blue; stroke-dasharray: 4; }
 </style>
 </head>
@@ -47,19 +46,21 @@
   let dataPoints = [];
   let colorScale;
   let maxVal = 0;
+  let maxDist = 0;
+  let maxHiVal = 0;
 
-  // Thresholds used for highlighting
-  const distanceThreshold = 900000;   // e.g. bins distance threshold
-  const valueThreshold = 80000;       // value threshold
-
-  // Create symmetric map (Hi-C is symmetric)
-  function createRobinsonMap(data) {
+  // Create symmetric map
+  function createMap(data) {
     const map = new Map();
     data.forEach(({i, j, value}) => {
       const key1 = `${i},${j}`;
       const key2 = `${j},${i}`;
       map.set(key1, value);
       map.set(key2, value);
+      // Find max distance in map
+      if(Math.abs(i-j) > maxDist){
+        maxDist = Math.abs(i-j);
+      }
     });
     return map;
   }
@@ -97,7 +98,8 @@
     const yScale = d3.scaleBand().domain(order).range([0, height]);
 
     maxVal = 0;
-    map.forEach(v => { if (v > maxVal) maxVal = v; });
+    map.forEach((v, key) => { const [a, b] = key.split(',').map(Number);
+    const result = Math.abs(b-a); if (v > maxVal) maxVal = v; else if(result > maxDist * 0.7 && v > maxHiVal) maxHiVal = v });
     colorScale = d3.scaleSequential(d3.interpolateOrRd).domain([0, Math.log1p(maxVal)]);
 
     // Prepare group for zoom & pan
@@ -158,11 +160,10 @@
         return;
       }
       d3.select("#message").text(`Loaded ${data.length} entries.`);
-      robMap = createRobinsonMap(data);
+      robMap = createMap(data);
       indices = reorderIndices(data);
       drawMatrix(robMap, indices);
       scale = 1;
-      document.getElementById("output").textContent = "";
       document.getElementById("myIframe").style.visibility = "hidden";
     };
     reader.readAsText(file);
@@ -219,7 +220,7 @@
                yScreen >= rect.y && yScreen <= rect.y + rect.height;
       });
 
-      // Post selected data to iframe with proper targetOrigin "*"
+      // Post selected data to iframe
       let iframe = document.getElementById("myIframe");
       iframe.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
       iframe.style.visibility = "visible";
@@ -271,10 +272,12 @@
 
     g.selectAll("rect")
       .attr("fill", d => {
-        // Distance in bins (assuming indices sorted)
+        // Distance in bins
         const dist = Math.abs(d.i - d.j);
+        const valueThreshold = maxHiVal * 0.5;
+        const distanceThreshold = maxDist * 0.6;
 
-        if (dist > 10 && d.value > valueThreshold) {
+        if (dist > distanceThreshold && d.value > valueThreshold) {
           return "blue";
         }
         return colorScale(Math.log1p(d.value));
