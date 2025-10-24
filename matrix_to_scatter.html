@@ -30,6 +30,9 @@
 
 <h3>Selected Submatrix</h3>
 <iframe id="myIframe" src="graph-from-RAWobserved.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+<iframe id="myIframe1" src="graph.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+<iframe id="myIframe2" src="graph2.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+<iframe id="myIframe3" src="graph3.html" width="1000" height="700" style="visibility: hidden;"></iframe>
 
 <script>
   const svg = d3.select("#matrix");
@@ -219,11 +222,22 @@
         return xScreen >= rect.x && xScreen <= rect.x + rect.width &&
                yScreen >= rect.y && yScreen <= rect.y + rect.height;
       });
-
       // Post selected data to iframe
       let iframe = document.getElementById("myIframe");
       iframe.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
       iframe.style.visibility = "visible";
+
+      let iframe1 = document.getElementById("myIframe1");
+      iframe1.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe1.style.visibility = "visible";
+
+      let iframe2 = document.getElementById("myIframe2");
+      iframe2.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe2.style.visibility = "visible";
+
+      let iframe3 = document.getElementById("myIframe3");
+      iframe3.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe3.style.visibility = "visible";
 
       // Remove selection rectangle
       if (selectionRect) {
@@ -264,6 +278,9 @@
 
     // Clear output and hide iframe on drag start
     document.getElementById("myIframe").style.visibility = "hidden";
+    document.getElementById("myIframe1").style.visibility = "hidden";
+    document.getElementById("myIframe2").style.visibility = "hidden";
+    document.getElementById("myIframe3").style.visibility = "hidden";
   });
 
   // Highlight distant high-value interactions
