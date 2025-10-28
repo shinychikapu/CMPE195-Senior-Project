@@ -3,8 +3,11 @@
 
 <head>
     <meta charset="utf-8" />
-    <title>RAWobserved - Weight Neighborhoods (attractive cluster layout + progressive fading)</title>
+    <title>Hi-C RAWobserved – Matrix→Graph Region Visualizer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- D3 for heatmap -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
     <style>
         :root {
             color-scheme: dark;
@@ -24,7 +27,7 @@
 
         #app {
             display: grid;
-            grid-template-columns: 420px 1fr;
+            grid-template-columns: 600px 1fr;
             height: 100vh;
         }
 
@@ -165,13 +168,34 @@
         button:hover {
             background: #1c2940;
         }
+
+        /* Heatmap area */
+        #heatmapWrap {
+            border: 1px solid #1a2636;
+            border-radius: 10px;
+            background: #0e141c;
+            padding: 8px;
+        }
+
+        #heatmap {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* keep the group inside from pushing the side panel — we hard-size the SVG and draw within it */
+        .selection {
+            fill: rgba(0, 0, 255, 0.3);
+            stroke: #00ff00;
+            stroke-dasharray: 5 4;
+        }
     </style>
 </head>
 
 <body>
     <div id="app">
         <div id="side">
-            <h1>RAWobserved - Weight Neighborhoods</h1>
+            <h3>Hi-C RAWobserved – Matrix→Graph Region Visualizer</h3>
 
             <div class="card">
                 <div class="row"><input id="file" type="file" accept=".RAWobserved,.txt,.tsv" /></div>
@@ -179,11 +203,29 @@
                 <div id="err"></div>
             </div>
 
+            <!-- Heatmap card (integrated) -->
+            <div class="card" id="heatmapCard">
+                <div class="row" style="justify-content:space-between; gap:6px">
+                    <label style="min-width:170px">Hi-C Heatmap (box-select → render graph)</label>
+                    <div>
+                        <button id="hmPan">Pan/Zoom</button>
+                        <button id="hmSelect">Box Select</button>
+                        <button id="hmClear">Clear</button>
+                    </div>
+                </div>
+                <div id="heatmapWrap">
+                    <svg id="heatmap" viewBox="0 0 820 380" preserveAspectRatio="xMidYMid meet"></svg>
+                </div>
+                <div class="tiny" id="hmInfo">—</div>
+            </div>
+
+            <h3 style="margin:0 0 8px">Heatmap Selection Graph – Weight Neighborhoods</h3>
+
             <div class="card">
                 <label>Find node</label>
                 <input id="search" type="text" placeholder="Type node id … (e.g., 1000000) and press Enter" />
-                <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: highlight neighbors • Click a cluster chip
-                    to zoom.</div>
+                <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: neighbors • Click a cluster chip to zoom.
+                </div>
             </div>
 
             <div class="card">
@@ -219,25 +261,20 @@
                         min="50" max="260" value="95" /><span id="wExpVal" class="tag">0.95</span></div>
                 <div class="row"><label style="min-width:170px">Edge length scale</label><input id="lenScale"
                         type="range" min="5" max="200" value="55" /><span id="lenScaleVal" class="tag">0.05</span></div>
-
                 <div class="row"><label style="min-width:170px">Layout weight percentile</label><input id="wPercentile"
                         type="range" min="0" max="95" value="95" /><span id="wPercentileVal" class="tag">95th</span>
                 </div>
                 <div class="row"><label style="min-width:170px">Weight influence (coloring)</label><input
                         id="wInfluence" type="range" min="0" max="100" value="100" /><span id="wInfluenceVal"
                         class="tag">100%</span></div>
-
                 <div class="row" style="gap:6px"><label style="flex:1">Neighborhood layout (clustered)</label><input
                         id="toggleClusterLayout" type="checkbox" checked /></div>
                 <div class="row"><label style="min-width:170px">Use spectral init (weighted)</label><input
                         id="toggleSpectral" type="checkbox" checked /></div>
-
-                <!-- Deterministic controls -->
                 <div class="row"><label style="min-width:170px">Deterministic (fixed seed)</label><input
                         id="deterministic" type="checkbox" checked /></div>
                 <div class="row"><label style="min-width:170px">Seed</label><input id="seed" type="number"
                         value="12345" /></div>
-
                 <div class="row"><label style="min-width:170px">Cluster separation</label><input id="sepMult"
                         type="range" min="60" max="260" value="160" /><span id="sepMultVal" class="tag">2.60×</span>
                 </div>
@@ -246,7 +283,6 @@
                 <div class="row"><label style="min-width:170px">Intra iterations</label><input id="itersIntra"
                         type="range" min="200" max="5000" value="1800" /><span id="itersIntraVal"
                         class="tag">1800</span></div>
-
                 <div class="tiny">Clusters attract if they share stronger edges (neighborhoods). A baseline repulsion
                     prevents collapse. All edges are drawn; weaker ones fade progressively.</div>
             </div>
@@ -265,7 +301,119 @@
         </div>
     </div>
 
+    <!-- ===== Integrated scripts ===== -->
     <script>
+        // ---------------- HEATMAP (from your matrix_to_scatter, integrated) ----------------
+        const hm = { svg: null, g: null, zoom: null, data: [], order: [], selection: null, zTransform: null, map: null, info: document.getElementById('hmInfo') };
+
+        function parseRAW(text) {
+            const out = []; const lines = String(text || '').trim().split(/\r?\n/);
+            for (const line of lines) {
+                const p = line.trim().split(/\s+/); if (p.length < 2) continue;
+                const i = +p[0], j = +p[1], v = p[2] ? +p[2] : 1;
+                if (Number.isFinite(i) && Number.isFinite(j) && Number.isFinite(v)) out.push({ i, j, value: v });
+            }
+            return out;
+        }
+
+        function drawHeatmap(rawText) {
+            const triples = parseRAW(rawText);
+            if (!triples.length) { hm.info.textContent = 'No valid i j value lines.'; return; }
+            // symmetric map + indices
+            const set = new Set(); const map = new Map(); let vmax = 0;
+            for (const { i, j, value } of triples) {
+                set.add(i); set.add(j);
+                map.set(i + ',' + j, value); map.set(j + ',' + i, value);
+                if (value > vmax) vmax = value;
+            }
+            hm.map = map;
+            hm.order = Array.from(set).sort((a, b) => a - b);
+
+            const W = 780, H = 780, padL = 18, padT = 18;
+            const cell = Math.max(2, Math.floor(Math.min(W, H) / Math.sqrt(hm.order.length + 1)));
+            const width = Math.min(W, hm.order.length * cell);
+            const height = Math.min(H, hm.order.length * cell);
+
+            hm.svg = d3.select('#heatmap').attr('viewBox', `0 0 ${width + padL * 2} ${height + padT * 2}`);
+            hm.svg.selectAll('*').remove();
+            hm.g = hm.svg.append('g').attr('transform', `translate(${padL},${padT})`);
+            const x = d3.scaleBand().domain(hm.order).range([0, width]).padding(0);
+            const y = d3.scaleBand().domain(hm.order).range([0, height]).padding(0);
+            const color = d3.scaleSequential(d3.interpolateOrRd).domain([0, Math.log1p(vmax)]);
+
+            // dense grid
+            const grid = [];
+            for (const i of hm.order) {
+                for (const j of hm.order) {
+                    const v = map.get(i + ',' + j) || 0;
+                    grid.push({ i, j, value: v });
+                }
+            }
+
+            hm.g.selectAll('rect').data(grid).join('rect')
+                .attr('x', d => x(d.i)).attr('y', d => y(d.j))
+                .attr('width', x.bandwidth()).attr('height', y.bandwidth())
+                .attr('fill', d => color(Math.log1p(d.value)));
+
+            hm.zoom = d3.zoom().scaleExtent([0.5, 12]).on('zoom', ev => { hm.g.attr('transform', ev.transform); hm.zTransform = ev.transform; });
+            d3.select('#hmPan').on('click', () => { disableBoxSelect(); hm.svg.call(hm.zoom.transform, hm.zTransform || d3.zoomIdentity); });
+            d3.select('#hmSelect').on('click', () => enableBoxSelect(x, y));
+            d3.select('#hmClear').on('click', () => { if (hm.selection) { hm.selection.remove(); hm.selection = null; } });
+            hm.svg.call(hm.zoom).on('dblclick.zoom', null);
+
+            hm.info.textContent = `Matrix: ${hm.order.length}×${hm.order.length} • cells drawn: ${grid.length}`;
+        }
+
+        function enableBoxSelect(x, y) {
+            hm.svg.on('.zoom', null);
+            if (hm.selection) { hm.selection.remove(); hm.selection = null; }
+            let start = null;
+
+            hm.svg.on('mousedown.box', (ev) => {
+                const p = d3.pointer(ev, hm.g.node());
+                start = { x: p[0], y: p[1] };
+                hm.selection = hm.g.append('rect')
+                    .attr('x', start.x).attr('y', start.y).attr('width', 0).attr('height', 0)
+                    .attr('class', 'selection');
+            });
+
+            hm.svg.on('mousemove.box', (ev) => {
+                if (!hm.selection || !start) return;
+                const p = d3.pointer(ev, hm.g.node());
+                const x0 = Math.min(start.x, p[0]), y0 = Math.min(start.y, p[1]);
+                const w = Math.abs(p[0] - start.x), h = Math.abs(p[1] - start.y);
+                hm.selection.attr('x', x0).attr('y', y0).attr('width', w).attr('height', h);
+            });
+
+            hm.svg.on('mouseup.box', () => {
+                if (!hm.selection) return;
+                const box = hm.selection.node().getBBox();
+                // pick cells whose rect overlaps box; then convert to RAW lines
+                const picked = [];
+                const bw = x.bandwidth(), bh = y.bandwidth();
+                for (const i of hm.order) {
+                    const xi = x(i);
+                    for (const j of hm.order) {
+                        const yj = y(j);
+                        const hit = !(xi > box.x + box.width || xi + bw < box.x || yj > box.y + box.height || yj + bh < box.y);
+                        if (hit) {
+                            const v = hm.map.get(i + ',' + j);
+                            if (v != null) picked.push(`${i}\t${j}\t${v}`);
+                        }
+                    }
+                }
+                if (picked.length) { build(picked.join('\n')); } // ← send to graph renderer
+                disableBoxSelect();
+            });
+        }
+        function disableBoxSelect() {
+            hm.svg.on('mousedown.box', null).on('mousemove.box', null).on('mouseup.box', null);
+            if (hm.zoom) hm.svg.call(hm.zoom);
+        }
+    </script>
+
+    <script>
+        // ---------------- GRAPH (your graph3.html code, unchanged in behavior) ----------------
         (function () {
             // ---------- DOM ----------
             const $ = id => document.getElementById(id);
@@ -293,13 +441,7 @@
 
             // ---------- Seeded RNG ----------
             let _rng = mulberry32(12345);
-            function mulberry32(a) {
-                return function () {
-                    a |= 0; a = (a + 0x6D2B79F5) | 0;
-                    let t = Math.imul(a ^ a >>> 15, 1 | a);
-                    t = (t + Math.imul(t ^ t >>> 7, 61 | t)) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
-                };
-            }
+            function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = (t + Math.imul(t ^ t >>> 7, 61 | t)) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
             function reseed(seed) { _rng = mulberry32((seed | 0) || 1); }
             function rnd() { return _rng(); }
             function rand(a, b) { return a + rnd() * (b - a); }
@@ -373,10 +515,7 @@
                     for (let i = 0; i < N; i++) {
                         const di = deg[i] > 0 ? 1 / Math.sqrt(deg[i]) : 0;
                         let sum = 0;
-                        W[i].forEach((wij, j) => {
-                            const dj = deg[j] > 0 ? 1 / Math.sqrt(deg[j]) : 0;
-                            sum += (wij * di * dj) * x[j];
-                        });
+                        W[i].forEach((wij, j) => { const dj = deg[j] > 0 ? 1 / Math.sqrt(deg[j]) : 0; sum += (wij * di * dj) * x[j]; });
                         y[i] = sum;
                     }
                     return y;
@@ -399,8 +538,6 @@
                 }
             }
 
-
-
             // ---------- File / Build ----------
             fileInput.addEventListener('change', (e) => {
                 try {
@@ -408,30 +545,21 @@
                     const f = e.target.files && e.target.files[0];
                     if (!f) { setStatus('No file selected.'); return; }
                     setStatus('Reading…');
-
                     const r = new FileReader();
                     r.onerror = () => showError('Failed to read file.');
                     r.onload = () => {
                         try {
-                            const raw = String(r.result || '');
-                            if (!raw.trim()) { showError('File is empty.'); return; }
-                            build(raw);
-                        } catch (err) {
-                            showError('Error while parsing: ' + (err?.stack || err));
-                        }
+                            const raw = String(r.result || ''); if (!raw.trim()) { showError('File is empty.'); return; }
+                            drawHeatmap(raw);   // <-- update heatmap from same file
+                            build(raw);         // <-- and render graph
+                        } catch (err) { showError('Error while parsing: ' + (err?.stack || err)); }
                     };
                     r.readAsText(f);
-                } catch (err) {
-                    showError('Unexpected error: ' + (err?.stack || err));
-                }
+                } catch (err) { showError('Unexpected error: ' + (err?.stack || err)); }
             });
 
-            window.addEventListener("message", (event) => {
-                // if (event.origin !== "matrix_to_scatter.html") {
-                //   return; // Ignore messages from unknown origins
-                // }
-                build(event.data);
-            });
+            // Expose build so heatmap box-select can call it
+            window.build = build;
 
             function build(text) {
                 if (deterministic.checked) reseed(Number(seedInput.value) || 1);
@@ -458,7 +586,7 @@
                     adjacency.get(a).add(b); adjacency.get(b).add(a);
                 }
 
-                nodes = Array.from(nodeSet); if (!nodes.length) throw new Error('No nodes parsed. Expected lines like: node1\tnode2\tweight');
+                nodes = Array.from(nodeSet); if (!nodes.length) throw new Error('No nodes parsed. Expected: node1\\tnode2\\tweight');
                 N = nodes.length;
 
                 const span = (wMax - wMin) || 1;
@@ -500,8 +628,8 @@
                 nodeCountEl.textContent = N; edgeCountEl.textContent = edges.length; comCountEl.textContent = order.length;
 
                 setStatus('Laying out…');
-                runLayout();                   // layout
-                fitView();                     // <-- NEW: auto-fit after upload
+                runLayout();
+                fitView();  // auto-fit after upload/selection
                 setStatus('Rendered ✓');
                 resize();
             }
@@ -525,7 +653,8 @@
                 for (const cid of clusterIds) strongIntraByCluster[cid] = [];
                 for (const e of edgesW) {
                     if (e.a === e.b && !toggleSelf.checked) continue;
-                    if (clusterOf[e.a] !== clusterOf[e.b]) continue; if (e.n >= cut) strongIntraByCluster[clusterOf[e.a]].push(e);
+                    if (clusterOf[e.a] !== clusterOf[e.b]) continue;
+                    if (e.n >= cut) strongIntraByCluster[clusterOf[e.a]].push(e);
                 }
                 wPercentileVal.textContent = `${p}th`;
             }
@@ -549,11 +678,9 @@
                 } else {
                     runGlobalForces();
                 }
-
-                fitView();  // <-- NEW: auto-fit after each layout run
+                fitView();
             }
 
-            // Attractive cluster layout (centers)
             function relaxClusterCentersAttractive() {
                 const steps = 380;
                 const sep = Number(sepMult.value) / 100;
@@ -564,7 +691,7 @@
                 const velC = {}; for (const cid of clusterIds) velC[cid] = { x: 0, y: 0 };
 
                 let maxInter = 0; for (const k in interW) if (interW[k] > maxInter) maxInter = interW[k];
-                const wNorm = (w) => (maxInter > 0 ? w / maxInter : 0);
+                const wNorm = w => (maxInter > 0 ? w / maxInter : 0);
 
                 function desiredDist(ca, cb, w) {
                     const sa = Math.sqrt(clusterSize[ca] || 1), sb = Math.sqrt(clusterSize[cb] || 1);
@@ -723,13 +850,11 @@
             function screenToWorld(sx, sy) { const cx = viewW / 2, cy = viewH / 2; return { x: (sx - cx) / cam.scale - cam.x, y: (sy - cy) / cam.scale - cam.y }; }
             function clearCanvas() { ctx.clearRect(0, 0, viewW, viewH); }
 
-            // NEW: fit the current node cloud into view with padding
             function fitView(pad = 36) {
                 if (!nodes.length) return;
                 let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
                 for (let i = 0; i < N; i++) {
-                    const p = pos[i];
-                    if (!isFinite(p.x) || !isFinite(p.y)) continue;
+                    const p = pos[i]; if (!isFinite(p.x) || !isFinite(p.y)) continue;
                     if (p.x < xmin) xmin = p.x; if (p.x > xmax) xmax = p.x;
                     if (p.y < ymin) ymin = p.y; if (p.y > ymax) ymax = p.y;
                 }
@@ -737,8 +862,7 @@
                 const w = Math.max(1e-3, xmax - xmin), h = Math.max(1e-3, ymax - ymin);
                 const sx = (viewW - pad * 2) / w, sy = (viewH - pad * 2) / h;
                 cam.scale = clamp(Math.min(sx, sy), 0.2, 6);
-                const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
-                cam.x = -cx; cam.y = -cy;
+                const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2; cam.x = -cx; cam.y = -cy;
                 draw();
             }
 
@@ -750,7 +874,7 @@
                 const gamma = Number(alphaGamma.value) / 100;
                 const beta = Number(wExp.value) / 100;
 
-                // edges (all); progressive fading by weight; self-loops zoom-scale
+                // edges
                 for (const e of edgesW) {
                     if (!toggleSelf.checked && e.a === e.b) continue;
                     const i = indexOf.get(e.a), j = indexOf.get(e.b);
@@ -768,15 +892,10 @@
                         continue;
                     }
 
-                    // Improved brightness mapping:
-                    // 1) Non-linear power for contrast
                     const wEff = Math.pow(Math.max(0, e.n), beta);
-                    const wPow = Math.pow(Math.max(1e-4, wEff), Math.max(0.2, gamma * 1.6)); // steeper curve
-                    // 2) Map into [minA, maxA] where maxA is user "base", minA very low
+                    const wPow = Math.pow(Math.max(1e-4, wEff), Math.max(0.2, gamma * 1.6));
                     const minA = intra ? 0.01 : 0.004;
                     const a = clamp(minA + (alphaBase - minA) * wPow, minA, 1);
-
-                    // Slight width cue from weight (subtle; keeps minimal visual noise)
                     const lw = 0.7 + 1.8 * wPow * cam.scale;
                     ctx.lineWidth = Math.max(0.6, lw);
 
@@ -793,7 +912,7 @@
                     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
                 }
 
-                // labels (top weighted-degree)
+                // labels
                 const pct = Number(labelPct.value); labelPctVal.textContent = pct + '%';
                 const showCount = Math.max(3, Math.round(N * pct / 100));
                 const top = nodes.slice().sort((a, b) => degrees[b] - degrees[a] || (a < b ? -1 : 1)).slice(0, showCount);
@@ -803,7 +922,7 @@
                     for (const id of top) { const i = indexOf.get(id), p = worldToScreen(pos[i].x, pos[i].y); ctx.fillText(id, p.x + 6, p.y); }
                 }
 
-                // hover spotlight
+                // hover
                 if (hoverIdx >= 0) {
                     const nid = nodes[hoverIdx], neigh = adjacency.get(nid) || new Set();
                     ctx.lineWidth = Math.max(1.3, 1.7 * cam.scale); ctx.strokeStyle = '#ffffffbb';
@@ -825,42 +944,22 @@
                 }
             }
 
-            function debounce(fn, ms = 120) {
-                let t;
-                return (...args) => {
-                    clearTimeout(t);
-                    t = setTimeout(() => fn(...args), ms);
-                };
-            }
-
-            const rerunLayout = () => {
-                try { setStatus('Laying out…'); } catch (_) { }
-                try { runLayout(); } catch (e) { console.error('Layout error:', e); }
-                try { fitView(); } catch (_) { }
-                try { setStatus('Rendered ✓'); } catch (_) { }
-            };
+            function debounce(fn, ms = 120) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+            const rerunLayout = () => { try { setStatus('Laying out…'); } catch { } try { runLayout(); } catch (e) { console.error(e); } try { fitView(); } catch { } try { setStatus('Rendered ✓'); } catch { } };
             const rerunLayoutDebounced = debounce(rerunLayout, 120);
 
-
             const side = document.getElementById('side');
-
-            // Continuous updates for sliders/number/text inputs
             side.addEventListener('input', (e) => {
                 const t = e.target;
                 if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
-                // Let your existing per-control label tags update (they already do),
-                // then trigger a debounced re-layout + auto-fit:
                 rerunLayoutDebounced();
             });
-
-            // Updates for checkboxes/selects that fire 'change'
             side.addEventListener('change', (e) => {
-                const t = e.target;
-                if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
+                const t = e.target; if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
                 rerunLayoutDebounced();
             });
 
-            // ---------- Interaction ----------
+            // Interaction
             let panning = false, lastX = 0, lastY = 0;
             canvas.addEventListener('mousedown', e => { panning = true; lastX = e.clientX; lastY = e.clientY; });
             window.addEventListener('mouseup', () => panning = false);
@@ -879,7 +978,7 @@
                 cam.x += before.x - after.x; cam.y += before.y - after.y; draw();
             }, { passive: false });
 
-            // ---------- Controls ----------
+            // Controls
             edgeAlpha.addEventListener('input', () => { edgeAlphaVal.textContent = (Number(edgeAlpha.value) / 100).toFixed(2); draw(); });
             alphaGamma.addEventListener('input', () => { alphaGammaVal.textContent = (Number(alphaGamma.value) / 100).toFixed(2); draw(); });
             labelPct.addEventListener('input', () => { labelPctVal.textContent = labelPct.value + '%'; draw(); });
@@ -914,7 +1013,6 @@
                 const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2; cam.x = -cx; cam.y = -cy; cam.scale = 1.6; draw();
             }
 
-            // ---------- Init ----------
             function init() {
                 edgeAlphaVal.textContent = (Number(edgeAlpha.value) / 100).toFixed(2);
                 alphaGammaVal.textContent = (Number(alphaGamma.value) / 100).toFixed(2);
@@ -928,7 +1026,6 @@
                 wPercentileVal.textContent = wPercentile.value + 'th';
                 sepMultVal.textContent = (Number(sepMult.value) / 100).toFixed(2) + '×';
                 interKVal.textContent = (Number(interK.value) / 100).toFixed(2);
-                setStatus('Choose a .RAWobserved file to begin.');
                 new ResizeObserver(() => resize()).observe(stage);
                 resize();
             }
@@ -937,10 +1034,7 @@
 
         window.addEventListener('error', (e) => {
             const box = document.getElementById('err');
-            if (box) {
-                box.style.display = 'block';
-                box.textContent = 'Uncaught error: ' + (e?.error?.stack || e?.message || e);
-            }
+            if (box) { box.style.display = 'block'; box.textContent = 'Uncaught error: ' + (e?.error?.stack || e?.message || e); }
         });
     </script>
 </body>

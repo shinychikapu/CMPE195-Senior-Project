@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Hi-C Heatmap with Selection + Highlighting</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  #matrix { border: 1px solid #ccc; margin-top: 20px; }
+  .tooltip {
+    position: absolute; pointer-events: none;
+    background: white; border: 1px solid #ccc;
+    padding: 5px 8px; border-radius: 4px;
+    font-size: 13px; opacity: 0; transition: opacity 0.2s;
+  }
+  button { margin: 5px; }
+  .selection { fill: rgba(0,0,255,0.1); stroke: blue; stroke-dasharray: 4; }
+</style>
+</head>
+<body>
+
+<h2>Upload Data: Lines of "i j value"</h2>
+<input type="file" id="fileInput" />
+<button id="selectBtn">Select Region</button>
+<button id="dragBtn">Drag and Zoom</button>
+<button id="highlightBtn">Highlight Distant High Values</button>
+<div id="message"></div>
+<svg id="matrix"></svg>
+<div class="tooltip" id="tooltip"></div>
+
+<h3>Selected Submatrix</h3>
+<iframe id="myIframe" src="graph-from-RAWobserved.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+<iframe id="myIframe1" src="graph.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+<iframe id="myIframe2" src="graph2.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+<iframe id="myIframe3" src="graph3.html" width="1000" height="700" style="visibility: hidden;"></iframe>
+
+<script>
+  const svg = d3.select("#matrix");
+  const tooltip = d3.select("#tooltip");
+  const cellSize = 6;
+
+  let robMap = new Map();
+  let indices = [];
+  let scale = 1;
+  let g;
+  let selecting = false;
+  let selectionRect = null;
+  let startX, startY;
+  let dataPoints = [];
+  let colorScale;
+  let maxVal = 0;
+  let maxDist = 0;
+  let maxHiVal = 0;
+
+  // Create symmetric map
+  function createMap(data) {
+    const map = new Map();
+    data.forEach(({i, j, value}) => {
+      const key1 = `${i},${j}`;
+      const key2 = `${j},${i}`;
+      map.set(key1, value);
+      map.set(key2, value);
+      // Find max distance in map
+      if(Math.abs(i-j) > maxDist){
+        maxDist = Math.abs(i-j);
+      }
+    });
+    return map;
+  }
+
+  // Get sorted unique indices
+  function reorderIndices(data) {
+    const unique = new Set();
+    data.forEach(({i, j}) => {
+      unique.add(i);
+      unique.add(j);
+    });
+    return Array.from(unique).sort((a,b) => a - b);
+  }
+
+  // Parse uploaded data text
+  function parseData(text) {
+    return text.trim().split('\n').map(line => {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 2) return null;
+      const i = +parts[0], j = +parts[1], value = parts[2] ? +parts[2] : 1;
+      return (!isNaN(i) && !isNaN(j) && !isNaN(value)) ? {i, j, value} : null;
+    }).filter(Boolean);
+  }
+
+  // Draw heatmap matrix
+  function drawMatrix(map, order) {
+    const n = order.length;
+    const width = cellSize * n;
+    const height = cellSize * n;
+
+    svg.attr("width", width + 100).attr("height", height + 100).html("");
+
+    // Scales for positioning rects
+    const xScale = d3.scaleBand().domain(order).range([0, width]);
+    const yScale = d3.scaleBand().domain(order).range([0, height]);
+
+    maxVal = 0;
+    map.forEach((v, key) => { const [a, b] = key.split(',').map(Number);
+    const result = Math.abs(b-a); if (v > maxVal) maxVal = v; else if(result > maxDist * 0.7 && v > maxHiVal) maxHiVal = v });
+    colorScale = d3.scaleSequential(d3.interpolateOrRd).domain([0, Math.log1p(maxVal)]);
+
+    // Prepare group for zoom & pan
+    g = svg.append("g")
+           .attr("transform", "translate(50,50) scale(1)");
+
+    dataPoints = [];
+    order.forEach(i => {
+      order.forEach(j => {
+        const key = `${i},${j}`;
+        const value = map.get(key) || 0;
+        dataPoints.push({i, j, value});
+      });
+    });
+
+    // Draw rectangles
+    g.selectAll("rect")
+      .data(dataPoints)
+      .join("rect")
+      .attr("x", d => xScale(d.i))
+      .attr("y", d => yScale(d.j))
+      .attr("width", cellSize)
+      .attr("height", cellSize)
+      .attr("fill", d => colorScale(Math.log1p(d.value)))
+      .on("mouseover", (event, d) => {
+        tooltip.style("opacity", 1)
+               .html(`i: ${d.i}<br>j: ${d.j}<br>Value: ${d.value}`)
+               .style("left", (event.pageX + 10) + "px")
+               .style("top", (event.pageY + 10) + "px");
+      })
+      .on("mouseout", () => tooltip.style("opacity", 0));
+
+    // Setup zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 20])
+      .on("zoom", (event) => {
+        g.attr("transform", event.transform);
+      });
+
+    svg.call(zoom);
+
+    // Reset selection rectangle if any
+    if (selectionRect) {
+      selectionRect.remove();
+      selectionRect = null;
+    }
+  }
+
+  // Handle file upload and drawing
+  document.getElementById("fileInput").addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = event => {
+      const data = parseData(event.target.result);
+      if(data.length === 0){
+        d3.select("#message").text("No valid data found!");
+        return;
+      }
+      d3.select("#message").text(`Loaded ${data.length} entries.`);
+      robMap = createMap(data);
+      indices = reorderIndices(data);
+      drawMatrix(robMap, indices);
+      scale = 1;
+      document.getElementById("myIframe").style.visibility = "hidden";
+    };
+    reader.readAsText(file);
+  });
+
+  // Enable selection mode
+  document.getElementById("selectBtn").addEventListener("click", () => {
+    if (!g) return;
+    svg.on(".zoom", null);  // disable zoom while selecting
+
+    svg.on("mousedown", (event) => {
+      selecting = true;
+      const [mx, my] = d3.pointer(event, g.node());
+      startX = mx; startY = my;
+      if (selectionRect) selectionRect.remove();
+      selectionRect = g.append("rect")
+                       .attr("class", "selection")
+                       .attr("x", startX)
+                       .attr("y", startY)
+                       .attr("width", 0)
+                       .attr("height", 0);
+    });
+
+    svg.on("mousemove", (event) => {
+      if (!selecting) return;
+      const [mx, my] = d3.pointer(event, g.node());
+      const x = Math.min(mx, startX), y = Math.min(my, startY);
+      const w = Math.abs(mx - startX), h = Math.abs(my - startY);
+      selectionRect.attr("x", x).attr("y", y).attr("width", w).attr("height", h);
+    });
+
+    svg.on("mouseup", (event) => {
+      if (!selecting) return;
+      selecting = false;
+
+      const rect = selectionRect.node().getBBox();
+
+      // Map pixel coords back to indices
+      // We know each cell is cellSize pixels and scaled by current zoom
+      const transform = d3.zoomTransform(svg.node());
+      const scaleFactor = transform.k;
+
+      // Calculate selected indices
+      const selected = dataPoints.filter(d => {
+        // Calculate cell position before zoom + translate
+        const cx = indices.indexOf(d.i) * cellSize;
+        const cy = indices.indexOf(d.j) * cellSize;
+
+        // Apply zoom & pan to cell positions
+        const xScreen = cx * scaleFactor + transform.x;
+        const yScreen = cy * scaleFactor + transform.y;
+
+        return xScreen >= rect.x && xScreen <= rect.x + rect.width &&
+               yScreen >= rect.y && yScreen <= rect.y + rect.height;
+      });
+      // Post selected data to iframe
+      let iframe = document.getElementById("myIframe");
+      iframe.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe.style.visibility = "visible";
+
+      let iframe1 = document.getElementById("myIframe1");
+      iframe1.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe1.style.visibility = "visible";
+
+      let iframe2 = document.getElementById("myIframe2");
+      iframe2.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe2.style.visibility = "visible";
+
+      let iframe3 = document.getElementById("myIframe3");
+      iframe3.contentWindow.postMessage(selected.map(d => `${d.i}\t${d.j}\t${d.value}`).join("\n"), "*");
+      iframe3.style.visibility = "visible";
+
+      // Remove selection rectangle
+      if (selectionRect) {
+        selectionRect.remove();
+        selectionRect = null;
+      }
+
+      // Re-enable zoom after selection
+      svg.on("mousedown", null).on("mousemove", null).on("mouseup", null);
+      const zoom = d3.zoom()
+        .scaleExtent([0.5, 20])
+        .on("zoom", (event) => {
+          g.attr("transform", event.transform);
+        });
+      svg.call(zoom);
+    });
+  });
+
+  // Enable drag and zoom mode (disable selection)
+  document.getElementById("dragBtn").addEventListener("click", () => {
+    if (!g) return;
+
+    // Remove any selection event handlers
+    svg.on("mousedown", null).on("mousemove", null).on("mouseup", null);
+    if (selectionRect) {
+      selectionRect.remove();
+      selectionRect = null;
+    }
+
+    // Setup zoom again
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 20])
+      .on("zoom", (event) => {
+        g.attr("transform", event.transform);
+      });
+
+    svg.call(zoom);
+
+    // Clear output and hide iframe on drag start
+    document.getElementById("myIframe").style.visibility = "hidden";
+    document.getElementById("myIframe1").style.visibility = "hidden";
+    document.getElementById("myIframe2").style.visibility = "hidden";
+    document.getElementById("myIframe3").style.visibility = "hidden";
+  });
+
+  // Highlight distant high-value interactions
+  document.getElementById("highlightBtn").addEventListener("click", () => {
+    if (!g) return;
+
+    g.selectAll("rect")
+      .attr("fill", d => {
+        // Distance in bins
+        const dist = Math.abs(d.i - d.j);
+        const valueThreshold = maxHiVal * 0.5;
+        const distanceThreshold = maxDist * 0.6;
+
+        if (dist > distanceThreshold && d.value > valueThreshold) {
+          return "blue";
+        }
+        return colorScale(Math.log1p(d.value));
+      });
+  });
+</script>
+
+</body>
+</html>

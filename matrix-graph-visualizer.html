@@ -3,268 +3,472 @@
 
 <head>
     <meta charset="utf-8" />
-    <title>RAWobserved - Weight Neighborhoods (attractive cluster layout + progressive fading)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAWobserved – Matrix→Graph Region Visualizer</title>
+
     <style>
         :root {
-            color-scheme: dark;
+            --bg: #0f141b;
+            --panel: #121b26;
+            --border: #1a2636;
+            --text: #dbe7ff;
+            --muted: #95a2b3;
+            --accent: #6ca0ff;
         }
 
         html,
         body {
             height: 100%;
             margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
         }
 
-        body {
-            background: #0b0f14;
-            color: #e6ebf2;
-            font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-        }
-
-        #app {
+        .app {
             display: grid;
             grid-template-columns: 420px 1fr;
-            height: 100vh;
-        }
-
-        #side {
-            padding: 14px;
-            border-right: 1px solid #182130;
-            background: #0e131a;
-            overflow: auto;
-        }
-
-        #stage {
-            position: relative;
-            min-width: 0;
-            min-height: 0;
-        }
-
-        #canvas {
-            position: absolute;
-            inset: 0;
-            width: 100%;
+            gap: 16px;
             height: 100%;
-            display: block;
         }
 
-        h1 {
-            margin: 0 0 10px;
-            font-size: 16px;
-            font-weight: 600;
+        .side {
+            padding: 16px;
+            overflow: auto;
+            border-right: 1px solid var(--border);
+        }
+
+        .main {
+            position: relative;
         }
 
         .card {
-            background: #101721;
-            border: 1px solid #1a2636;
-            border-radius: 14px;
-            padding: 12px;
-            margin-bottom: 10px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 12px 10px;
+            margin-bottom: 12px;
         }
 
         .row {
             display: flex;
-            gap: 10px;
             align-items: center;
-            margin: 8px 0;
-        }
-
-        input[type="file"],
-        input[type="text"],
-        input[type="number"] {
-            width: 100%;
-            background: #0c1218;
-            border: 1px solid #223145;
-            color: #e6ebf2;
-            border-radius: 10px;
-            padding: 8px 10px;
-        }
-
-        label {
-            font-size: 12px;
-            color: #a8b6c7;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .tiny {
-            font-size: 11px;
-            color: #94a3b6;
-            line-height: 1.35;
-        }
-
-        .tag {
-            display: inline-block;
-            padding: 2px 8px;
-            border: 1px solid #223145;
-            background: #0b1016;
-            border-radius: 999px;
-            font-size: 11px;
-            color: #a9b6c8;
-        }
-
-        .legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 6px;
-            max-height: 150px;
-            overflow: auto;
-        }
-
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            border: 1px solid #1a2f46;
-            background: #0c1219;
-            padding: 4px 8px;
-            border-radius: 999px;
-            font-size: 11px;
-            cursor: pointer;
-        }
-
-        .dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-
-        #err {
-            white-space: pre-wrap;
-            background: #1a0f12;
-            border: 1px solid #3a1d25;
-            color: #ffd6de;
-            border-radius: 10px;
-            padding: 8px;
-            display: none;
-            max-height: 180px;
-            overflow: auto;
-        }
-
-        .footer {
-            position: absolute;
-            right: 10px;
-            bottom: 10px;
-            background: #0f1318cc;
-            padding: 6px 10px;
-            border: 1px solid #1b2330;
-            border-radius: 10px;
+            color: var(--muted);
             font-size: 12px;
         }
 
-        button {
-            background: #182234;
-            border: 1px solid #2a3b56;
-            color: #e6ebf2;
-            border-radius: 10px;
-            padding: 8px 10px;
-            font-weight: 600;
-            cursor: pointer;
+        button,
+        input[type="file"],
+        input[type="number"] {
+            background: #0f1722;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font: inherit;
         }
 
         button:hover {
-            background: #1c2940;
+            border-color: #2a3b54;
+        }
+
+        .counter {
+            font-weight: 600;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Heatmap container */
+        #hmWrap {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: #122237;
+            color: #fff;
+            border: 1px solid #2a3b54;
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 12px;
+            transform: translate(-50%, -120%);
+            white-space: nowrap;
         }
     </style>
+
+    <!-- D3 only for the heatmap; your graph code can stay as-is -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 
 <body>
-    <div id="app">
-        <div id="side">
-            <h1>RAWobserved - Weight Neighborhoods</h1>
+    <div class="app">
+        <!-- =================== LEFT PANEL =================== -->
+        <aside class="side" id="leftPanel">
 
+            <!-- ====== Your existing graph controls go here; we keep upload the same ID ====== -->
             <div class="card">
-                <div class="row"><input id="file" type="file" accept=".RAWobserved,.txt,.tsv" /></div>
-                <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
-                <div id="err"></div>
+                <h1 style="margin:0 0 8px">RAWobserved – Weight Neighborhoods</h1>
+
+                <div class="row">
+                    <!-- Keep your original file input id so your realGraphBuild(text) continues to work -->
+                    <input type="file" id="fileInput" accept=".RAWobserved,.txt, .tsv" />
+                    <div id="statusMatrix" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
+                    <div id="errMatrix"></div>
+
+                    <span id="counts" class="tiny">Nodes: 0 • Edges: 0</span>
+                </div>
+                <div id="log" class="tiny" style="margin-top:6px;color:#c6d2e2;"></div>
             </div>
 
-            <div class="card">
-                <label>Find node</label>
-                <input id="search" type="text" placeholder="Type node id … (e.g., 1000000) and press Enter" />
-                <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: highlight neighbors • Click a cluster chip
-                    to zoom.</div>
+            <!-- old position of heatmap selection card -->
+
+            <!-- If you have other cards/controls already in graph3, keep them below -->
+            <div id="side">
+                <h1>RAWobserved - Weight Neighborhoods</h1>
+
+                <div class="card">
+                    <div class="row"><input id="file" type="file" accept=".RAWobserved,.txt,.tsv" /></div>
+                    <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
+                    <div id="err"></div>
+                </div>
+
+                <div class="card">
+                    <label>Find node</label>
+                    <input id="search" type="text" placeholder="Type node id … (e.g., 1000000) and press Enter" />
+                    <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: highlight neighbors • Click a cluster
+                        chip
+                        to zoom.</div>
+                </div>
+
+                <div class="card">
+                    <div class="row"><label style="min-width:170px">Edge opacity (base)</label>
+                        <input id="edgeAlpha" type="range" min="5" max="80" value="80" />
+                        <span id="edgeAlphaVal" class="tag">0.80</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Opacity weight gamma</label>
+                        <input id="alphaGamma" type="range" min="0" max="100" value="40" />
+                        <span id="alphaGammaVal" class="tag">40</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Label density</label>
+                        <input id="labelPct" type="range" min="0" max="100" value="0" />
+                        <span id="labelPctVal" class="tag">0%</span>
+                    </div>
+                    <div class="row" style="gap:6px"><label style="flex:1">Show inter-cluster edges</label><input
+                            id="toggleCross" type="checkbox" checked /></div>
+                    <div class="row" style="gap:6px"><label style="flex:1">Show self-edges</label><input id="toggleSelf"
+                            type="checkbox" /></div>
+                </div>
+
+                <div class="card">
+                    <div class="row"><label style="min-width:170px">Iterations (global)</label><input id="iters"
+                            type="range" min="300" max="7000" value="1200" /><span id="itersVal" class="tag">1200</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Repulsion</label><input id="kRepel" type="range"
+                            min="80" max="2000" value="500" /><span id="kRepelVal" class="tag">0</span></div>
+                    <div class="row"><label style="min-width:170px">Spring base (k)</label><input id="kSpring"
+                            type="range" min="10" max="240" value="110" /><span id="kSpringVal" class="tag">0.10</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Gravity to center</label><input id="kGravity"
+                            type="range" min="0" max="200" value="18" /><span id="kGravityVal" class="tag">0.00</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Weight exponent (β)</label><input id="wExp"
+                            type="range" min="50" max="260" value="95" /><span id="wExpVal" class="tag">0.95</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Edge length scale</label><input id="lenScale"
+                            type="range" min="5" max="200" value="55" /><span id="lenScaleVal" class="tag">0.05</span>
+                    </div>
+
+                    <div class="row"><label style="min-width:170px">Layout weight percentile</label><input
+                            id="wPercentile" type="range" min="0" max="95" value="95" /><span id="wPercentileVal"
+                            class="tag">95th</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Weight influence (coloring)</label><input
+                            id="wInfluence" type="range" min="0" max="100" value="100" /><span id="wInfluenceVal"
+                            class="tag">100%</span></div>
+
+                    <div class="row" style="gap:6px"><label style="flex:1">Neighborhood layout (clustered)</label><input
+                            id="toggleClusterLayout" type="checkbox" checked /></div>
+                    <div class="row"><label style="min-width:170px">Use spectral init (weighted)</label><input
+                            id="toggleSpectral" type="checkbox" checked /></div>
+
+                    <!-- Deterministic controls -->
+                    <div class="row"><label style="min-width:170px">Deterministic (fixed seed)</label><input
+                            id="deterministic" type="checkbox" checked /></div>
+                    <div class="row"><label style="min-width:170px">Seed</label><input id="seed" type="number"
+                            value="12345" /></div>
+
+                    <div class="row"><label style="min-width:170px">Cluster separation</label><input id="sepMult"
+                            type="range" min="60" max="260" value="160" /><span id="sepMultVal" class="tag">2.60×</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Inter-cluster spring</label><input id="interK"
+                            type="range" min="10" max="300" value="140" /><span id="interKVal" class="tag">2.70</span>
+                    </div>
+                    <div class="row"><label style="min-width:170px">Intra iterations</label><input id="itersIntra"
+                            type="range" min="200" max="5000" value="1800" /><span id="itersIntraVal"
+                            class="tag">1800</span></div>
+
+                    <div class="tiny">Clusters attract if they share stronger edges (neighborhoods). A baseline
+                        repulsion
+                        prevents collapse. All edges are drawn; weaker ones fade progressively.</div>
+                </div>
+
+                <div class="card">
+                    <label>Clusters (color/legend)</label>
+                    <div id="legend" class="legend"></div>
+                </div>
             </div>
 
-            <div class="card">
-                <div class="row"><label style="min-width:170px">Edge opacity (base)</label>
-                    <input id="edgeAlpha" type="range" min="5" max="80" value="80" />
-                    <span id="edgeAlphaVal" class="tag">0.80</span>
+            <div id="stage">
+                <canvas id="canvas"></canvas>
+                <div class="footer">Nodes: <span id="nodeCount">0</span> • Edges: <span id="edgeCount">0</span> •
+                    Clusters:
+                    <span id="comCount">0</span>
                 </div>
-                <div class="row"><label style="min-width:170px">Opacity weight gamma</label>
-                    <input id="alphaGamma" type="range" min="0" max="100" value="40" />
-                    <span id="alphaGammaVal" class="tag">40</span>
-                </div>
-                <div class="row"><label style="min-width:170px">Label density</label>
-                    <input id="labelPct" type="range" min="0" max="100" value="0" />
-                    <span id="labelPctVal" class="tag">0%</span>
-                </div>
-                <div class="row" style="gap:6px"><label style="flex:1">Show inter-cluster edges</label><input
-                        id="toggleCross" type="checkbox" checked /></div>
-                <div class="row" style="gap:6px"><label style="flex:1">Show self-edges</label><input id="toggleSelf"
-                        type="checkbox" /></div>
             </div>
+        </aside>
 
-            <div class="card">
-                <div class="row"><label style="min-width:170px">Iterations (global)</label><input id="iters"
-                        type="range" min="300" max="7000" value="1200" /><span id="itersVal" class="tag">1200</span>
-                </div>
-                <div class="row"><label style="min-width:170px">Repulsion</label><input id="kRepel" type="range"
-                        min="80" max="2000" value="500" /><span id="kRepelVal" class="tag">0</span></div>
-                <div class="row"><label style="min-width:170px">Spring base (k)</label><input id="kSpring" type="range"
-                        min="10" max="240" value="110" /><span id="kSpringVal" class="tag">0.10</span></div>
-                <div class="row"><label style="min-width:170px">Gravity to center</label><input id="kGravity"
-                        type="range" min="0" max="200" value="18" /><span id="kGravityVal" class="tag">0.00</span></div>
-                <div class="row"><label style="min-width:170px">Weight exponent (β)</label><input id="wExp" type="range"
-                        min="50" max="260" value="95" /><span id="wExpVal" class="tag">0.95</span></div>
-                <div class="row"><label style="min-width:170px">Edge length scale</label><input id="lenScale"
-                        type="range" min="5" max="200" value="55" /><span id="lenScaleVal" class="tag">0.05</span></div>
-
-                <div class="row"><label style="min-width:170px">Layout weight percentile</label><input id="wPercentile"
-                        type="range" min="0" max="95" value="95" /><span id="wPercentileVal" class="tag">95th</span>
-                </div>
-                <div class="row"><label style="min-width:170px">Weight influence (coloring)</label><input
-                        id="wInfluence" type="range" min="0" max="100" value="100" /><span id="wInfluenceVal"
-                        class="tag">100%</span></div>
-
-                <div class="row" style="gap:6px"><label style="flex:1">Neighborhood layout (clustered)</label><input
-                        id="toggleClusterLayout" type="checkbox" checked /></div>
-                <div class="row"><label style="min-width:170px">Use spectral init (weighted)</label><input
-                        id="toggleSpectral" type="checkbox" checked /></div>
-
-                <!-- Deterministic controls -->
-                <div class="row"><label style="min-width:170px">Deterministic (fixed seed)</label><input
-                        id="deterministic" type="checkbox" checked /></div>
-                <div class="row"><label style="min-width:170px">Seed</label><input id="seed" type="number"
-                        value="12345" /></div>
-
-                <div class="row"><label style="min-width:170px">Cluster separation</label><input id="sepMult"
-                        type="range" min="60" max="260" value="160" /><span id="sepMultVal" class="tag">2.60×</span>
-                </div>
-                <div class="row"><label style="min-width:170px">Inter-cluster spring</label><input id="interK"
-                        type="range" min="10" max="300" value="140" /><span id="interKVal" class="tag">2.70</span></div>
-                <div class="row"><label style="min-width:170px">Intra iterations</label><input id="itersIntra"
-                        type="range" min="200" max="5000" value="1800" /><span id="itersIntraVal"
-                        class="tag">1800</span></div>
-
-                <div class="tiny">Clusters attract if they share stronger edges (neighborhoods). A baseline repulsion
-                    prevents collapse. All edges are drawn; weaker ones fade progressively.</div>
+        
+        <!-- ====== Heatmap (Matrix) selector card – new ====== -->
+        <div class="card" id="hmCard">
+            <h2 style="margin:0 0 6px">Heatmap (select a region → graph)</h2>
+            <div class="tiny">Drag to zoom. Click “Select Region”, then drag a box to send only those lines to the
+                graph.</div>
+            <div class="row" style="margin:8px 0 6px">
+                <button id="hmSelect">Select Region</button>
+                <button id="hmPan">Drag & Zoom</button>
+                <button id="hmClear">Clear</button>
             </div>
-
-            <div class="card">
-                <label>Clusters (color/legend)</label>
-                <div id="legend" class="legend"></div>
+            <div id="hmWrap">
+                <!-- Sized dynamically after data is parsed -->
+                <svg id="heatmap" width="380" height="380"></svg>
             </div>
         </div>
 
-        <div id="stage">
-            <canvas id="canvas"></canvas>
-            <div class="footer">Nodes: <span id="nodeCount">0</span> • Edges: <span id="edgeCount">0</span> • Clusters:
-                <span id="comCount">0</span>
+
+        <!-- =================== MAIN (YOUR GRAPH) =================== -->
+        <main class="main">
+            <!-- Keep your existing canvas / WebGL area exactly as it is.
+           If you already have it in graph3.html, keep that structure and IDs. -->
+            <div id="graphHost" style="position:absolute; inset:12px;">
+                <!-- Your existing graph canvas and UI render here by your own code. -->
+                <!-- E.g., <canvas id="graphCanvas"></canvas> -->
             </div>
-        </div>
+            <!-- shared tooltip for heatmap (positioned absolutely) -->
+            <div id="hmTip" class="tooltip" style="display:none;"></div>
+        </main>
     </div>
 
+    <script>
+        // -------------------------------------------------------------------
+        // Minimal glue code to integrate the heatmap with your existing graph
+        // Assumptions:
+        //   1) Your original graph code defines a global function: realGraphBuild(text)
+        //      that accepts RAWobserved content as plain text and renders graph.
+        //   2) We do NOT alter your graph code; we only call realGraphBuild(text).
+        //   3) We reuse the SAME uploaded file for both views.
+        // -------------------------------------------------------------------
+
+        // ====== Globals you can keep ======
+        let RAW_TEXT = null;                // The last loaded RAWobserved as plain text
+        let GRAPH_BUILD = null;             // Reference to window.build if present
+        let hm = { svg: null, g: null, zoom: null, data: [], order: [], selection: null, zTransform: null };
+
+        // Capture your realGraphBuild(text) if it already exists (loaded by your other script)
+        // If your script loads later, we’ll fetch it right before calling.
+        function ensureBuildRef() {
+            if (!GRAPH_BUILD && typeof window.build === 'function') GRAPH_BUILD = window.build;
+        }
+
+        // ====== File input (unchanged ID so your own listeners still work) ======
+        document.getElementById('fileInput').addEventListener('change', (ev) => {
+            const file = ev.target.files && ev.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                RAW_TEXT = e.target.result;
+                // Update heatmap and graph with the same content
+                drawHeatmapFromRaw(RAW_TEXT);
+                ensureBuildRef();
+                if (GRAPH_BUILD) GRAPH_realGraphBuild(RAW_TEXT);
+                else console.warn('realGraphBuild(text) is not defined yet; ensure your graph JS is loaded.');
+            };
+            reader.readAsText(file);
+        });
+
+        // =====================================================================================
+        // Heatmap code (D3) – kept minimal, no interference with your graph code
+        // =====================================================================================
+        function parseRAWToTriples(raw) {
+            // Parse "i j weight" per line; tolerate extra whitespace
+            const lines = raw.trim().split(/\r?\n/);
+            const triples = [];
+            let e = 0;
+            for (const line of lines) {
+                const a = line.trim().split(/\s+/);
+                if (a.length < 2) continue;
+                const i = +a[0], j = +a[1], v = a[2] ? +a[2] : 1;
+                if (Number.isFinite(i) && Number.isFinite(j) && Number.isFinite(v)) {
+                    triples.push({ i, j, value: v }); e++;
+                }
+            }
+            document.getElementById('counts').textContent = `Nodes: ${countNodes(triples)} • Edges: ${e}`;
+            return triples;
+        }
+
+        function countNodes(triples) {
+            const s = new Set();
+            triples.forEach(d => { s.add(d.i); s.add(d.j); });
+            return s.size;
+        }
+
+        function drawHeatmapFromRaw(raw) {
+            if (!raw) return;
+            hm.data = parseRAWToTriples(raw);
+            if (hm.data.length === 0) {
+                document.getElementById('log').textContent = 'No lines parsed. Expect "i j value" per line.';
+                return;
+            }
+            document.getElementById('log').textContent = `Loaded ${hm.data.length} edges.`;
+
+            // Unique sorted indices
+            const idx = new Set();
+            hm.data.forEach(d => { idx.add(d.i); idx.add(d.j); });
+            hm.order = Array.from(idx).sort((a, b) => a - b);
+
+            const n = hm.order.length;
+            const cell = Math.max(2, Math.min(8, Math.floor(360 / Math.sqrt(n)))); // adaptive cell size
+            const pad = 20;
+            const W = Math.min(760, Math.max(200, hm.order.length * cell));
+            const H = W; // square
+
+            hm.svg = d3.select('#heatmap').attr('width', W + pad * 2).attr('height', H + pad * 2);
+            hm.svg.selectAll('*').remove();
+            hm.g = hm.svg.append('g').attr('transform', `translate(${pad},${pad})`);
+
+            const x = d3.scaleBand().domain(hm.order).range([0, W]).padding(0);
+            const y = d3.scaleBand().domain(hm.order).range([0, H]).padding(0);
+
+            // quick dense map for values
+            const map = new Map(); let vmax = 0;
+            for (const { i, j, value } of hm.data) {
+                map.set(i + "," + j, value);
+                map.set(j + "," + i, value);
+                if (value > vmax) vmax = value;
+            }
+            const c = d3.scaleSequential(d3.interpolateOrRd).domain([0, Math.log1p(vmax)]);
+
+            // sparse → full grid (cheap and robust)
+            const grid = [];
+            for (const i of hm.order) {
+                for (const j of hm.order) {
+                    const v = map.get(i + "," + j) || 0;
+                    grid.push({ i, j, value: v });
+                }
+            }
+
+            // draw cells
+            hm.g.selectAll('rect').data(grid).join('rect')
+                .attr('x', d => x(d.i)).attr('y', d => y(d.j))
+                .attr('width', x.bandwidth()).attr('height', y.bandwidth())
+                .attr('fill', d => c(Math.log1p(d.value)));
+
+            // zoom/pan
+            hm.zoom = d3.zoom()
+                .scaleExtent([0.5, 12])
+                .on('zoom', ev => { hm.g.attr('transform', ev.transform); hm.zTransform = ev.transform; });
+            hm.svg.call(hm.zoom).on('dblclick.zoom', null);
+
+            // wire buttons
+            document.getElementById('hmSelect').onclick = () => enableBoxSelect(x, y);
+            document.getElementById('hmPan').onclick = () => { disableBoxSelect(); hm.svg.call(hm.zoom.transform, hm.zTransform || d3.zoomIdentity); };
+            document.getElementById('hmClear').onclick = () => { clearSelection(); };
+        }
+
+        function enableBoxSelect(x, y) {
+            // disable zoom while selecting
+            hm.svg.on('.zoom', null);
+            clearSelection();
+
+            hm.svg.on('mousedown.box', (ev) => {
+                const start = d3.pointer(ev, hm.g.node());
+                hm.selection = hm.g.append('rect')
+                    .attr('x', start[0]).attr('y', start[1]).attr('width', 0).attr('height', 0)
+                    .attr('fill', 'rgba(108,160,255,0.16)').attr('stroke', '#6ca0ff').attr('stroke-dasharray', '5,4');
+                hm._start = { x: start[0], y: start[1] };
+            });
+
+            hm.svg.on('mousemove.box', (ev) => {
+                if (!hm.selection) return;
+                const p = d3.pointer(ev, hm.g.node());
+                const x0 = Math.min(hm._start.x, p[0]), y0 = Math.min(hm._start.y, p[1]);
+                const w = Math.abs(p[0] - hm._start.x), h = Math.abs(p[1] - hm._start.y);
+                hm.selection.attr('x', x0).attr('y', y0).attr('width', w).attr('height', h);
+            });
+
+            hm.svg.on('mouseup.box', () => {
+                if (!hm.selection) return;
+                const box = hm.selection.node().getBBox();
+
+                // pick cells overlapping the box
+                const picked = [];
+                const bw = x.bandwidth(), bh = y.bandwidth();
+                for (const i of hm.order) {
+                    const xi = x(i);
+                    for (const j of hm.order) {
+                        const yj = y(j);
+                        const hit = !(xi > box.x + box.width || xi + bw < box.x || yj > box.y + box.height || yj + bh < box.y);
+                        if (hit) picked.push({ i, j });
+                    }
+                }
+
+                // find original values for those i,j pairs
+                const map = new Map(hm.data.map(d => [d.i + ',' + d.j, d.value]));
+                const out = [];
+                for (const { i, j } of picked) {
+                    const val = map.get(i + ',' + j);
+                    if (val != null) out.push(`${i}\t${j}\t${val}`);
+                }
+
+                // send to your existing graph renderer
+                if (out.length) {
+                    ensureBuildRef();
+                    if (GRAPH_BUILD) GRAPH_realGraphBuild(out.join('\n'));
+                    else console.warn('realGraphBuild(text) is not defined yet; selection prepared but not rendered.');
+                }
+
+                // restore zoom
+                disableBoxSelect();
+            });
+        }
+
+        function disableBoxSelect() {
+            hm.svg.on('mousedown.box', null).on('mousemove.box', null).on('mouseup.box', null);
+            if (hm.zoom) hm.svg.call(hm.zoom);
+        }
+
+        function clearSelection() { if (hm.selection) { hm.selection.remove(); hm.selection = null; } }
+
+        // --------------------------------------------------------------------------------------
+        // NOTE:
+        //  - Keep your original graph JS (layouts, sliders, etc.) loaded as usual.
+        //  - This file only adds the heatmap and calls realGraphBuild(text) when the user selects a region.
+        //  - If your graph code lives in a separate <script src="...">, include it below this block.
+        // --------------------------------------------------------------------------------------
+
+    </script>
+
+    <!-- from graph3.html -->
     <script>
         (function () {
             // ---------- DOM ----------
@@ -415,7 +619,7 @@
                         try {
                             const raw = String(r.result || '');
                             if (!raw.trim()) { showError('File is empty.'); return; }
-                            build(raw);
+                            realGraphBuild(raw);
                         } catch (err) {
                             showError('Error while parsing: ' + (err?.stack || err));
                         }
@@ -430,10 +634,10 @@
                 // if (event.origin !== "matrix_to_scatter.html") {
                 //   return; // Ignore messages from unknown origins
                 // }
-                build(event.data);
+                realGraphBuild(event.data);
             });
 
-            function build(text) {
+            function realGraphBuild(text) {
                 if (deterministic.checked) reseed(Number(seedInput.value) || 1);
 
                 setStatus('Parsing…');
@@ -708,14 +912,16 @@
             }
 
             // ---------- View / Render ----------
-            function resize() {
-                const rect = stage.getBoundingClientRect();
-                viewW = Math.max(1, rect.width | 0); viewH = Math.max(1, rect.height | 0);
-                dpr = Math.max(1, window.devicePixelRatio || 1);
-                canvas.width = viewW * dpr; canvas.height = viewH * dpr;
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                draw();
-            }
+
+            // this is causing the side panel infinite vertical space growth
+            // function resize() {
+            //     const rect = stage.getBoundingClientRect();
+            //     viewW = Math.max(1, rect.width | 0); viewH = Math.max(1, rect.height | 0);
+            //     dpr = Math.max(1, window.devicePixelRatio || 1);
+            //     canvas.width = viewW * dpr; canvas.height = viewH * dpr;
+            //     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            //     draw();
+            // }
             window.addEventListener('resize', resize);
             new ResizeObserver(resize).observe(stage);
 
