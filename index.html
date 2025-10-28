@@ -16,7 +16,7 @@
 
   <script>
   (async function () {
-    const graphData = await fetch("without_thresholding.json").then(r => r.json());
+    const graphData = await fetch("graph_knn_k8.json").then(r => r.json());
 
     const communities = Array.from(new Set(graphData.nodes.map(d => d.community)));
     const color = d3.scaleOrdinal(communities, d3.schemeTableau10);
