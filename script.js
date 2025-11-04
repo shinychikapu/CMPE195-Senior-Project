@@ -1,5 +1,84 @@
 // ---------------- HEATMAP (from your matrix_to_scatter, integrated) ----------------
 const hm = { svg: null, g: null, zoom: null, data: [], order: [], selection: null, zTransform: null, map: null, info: document.getElementById('hmInfo') };
+// === Annotations (BEDPE-like) ===
+const ann = {
+  rows: [],          // parsed rows filtered to current chromosome
+  binSize: 1_000_000,
+  chr: 'chr1',
+  useColorFromFile: true,
+  defaultRGB: '0,255,0',
+  show: true
+};
+// === TAD/Loop overlay state (derived from ann.rows) ===
+const tadLoop = {
+  tads: [],   // {chr,x1,x2,y1,y2,color,features,id}
+  loops: [],  // {chr,a,b,color,score}
+};
+
+const useTADClusters = document.getElementById('useTADClusters');
+const showLoopEdges = document.getElementById('showLoopEdges');
+const loopsAffectLayout = document.getElementById('loopsAffectLayout');
+
+useTADClusters.addEventListener('change', () => { rerunLayoutDebounced(); });
+showLoopEdges.addEventListener('change', () => { draw(); });
+loopsAffectLayout.addEventListener('change', () => { rerunLayoutDebounced(); });
+
+function normalizeChr(s) {
+  if (!s) return '';
+  s = String(s).trim();
+  if (!s) return '';
+  if (s.startsWith('chr') || s.startsWith('CHR')) return s.replace(/^CHR/, 'chr');
+  return 'chr' + s;
+}
+
+function rgbOrFallback(colorStr, fallback) {
+  if (!colorStr) return `rgb(${fallback})`;
+  const m = String(colorStr).match(/^\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*$/);
+  if (!m) return `rgb(${fallback})`;
+  const [r,g,b] = m.slice(1).map(Number).map(v => Math.max(0, Math.min(255, v)));
+  return `rgb(${r},${g},${b})`;
+}
+
+function bpToBin(bp, binSize) {
+  // Arrowhead/HiCCUPS usually define TAD/loop anchors in bp; your matrix bins are uniform.
+  // Round to nearest bin start to align visually with heatmap pixels.
+  return Math.round(Number(bp) / Number(binSize)) * Number(binSize);
+}
+function parseBEDPE(text, targetChr, binSize) {
+  const out = [];
+  const lines = String(text || '').split(/\r?\n/);
+  // try to detect header (first line has non-numeric tokens or "chr1")
+  const startIdx = lines.length && /chr/i.test(lines[0]) && /\bchr1?\b/i.test(lines[0]) ? 1 : 0;
+
+  for (let li = startIdx; li < lines.length; li++) {
+    const line = lines[li].trim();
+    if (!line || line.startsWith('#')) continue;
+    const p = line.split(/\s+/);
+    if (p.length < 6) continue;
+
+    const c1 = normalizeChr(p[0]);
+    const x1 = +p[1], x2 = +p[2];
+    const c2 = normalizeChr(p[3]);
+    const y1 = +p[4], y2 = +p[5];
+
+    // Keep only intra-chromosomal for overlay (squares on the diagonal)
+    if (c1 !== c2) continue;
+    if (targetChr && c1 !== targetChr) continue;
+    if (!Number.isFinite(x1) || !Number.isFinite(x2) || !Number.isFinite(y1) || !Number.isFinite(y2)) continue;
+
+    const color = p[6] && /^\d/.test(p[6]) ? p[6] : null; // optional RGB
+    const features = p.slice(7).map(Number).filter(v => Number.isFinite(v));
+
+    // Convert bp to bin-aligned coordinates (so they line up with matrix bands)
+    const X1 = bpToBin(Math.min(x1, x2), binSize);
+    const X2 = bpToBin(Math.max(x1, x2), binSize);
+    const Y1 = bpToBin(Math.min(y1, y2), binSize);
+    const Y2 = bpToBin(Math.max(y1, y2), binSize);
+
+    out.push({ chr: c1, x1: X1, x2: X2, y1: Y1, y2: Y2, color, features });
+  }
+  return out;
+}
 
 function parseRAW(text) {
   const out = []; const lines = String(text || '').trim().split(/\r?\n/);
@@ -56,7 +135,92 @@ function drawHeatmap(rawText) {
   d3.select('#hmClear').on('click', () => { if (hm.selection) { hm.selection.remove(); hm.selection = null; } });
   hm.svg.call(hm.zoom).on('dblclick.zoom', null);
 
+  // after the heatmap cells are created
+  splitTADsAndLoops();       
+  drawHeatmapOverlay();
   hm.info.textContent = `Matrix: ${hm.order.length}×${hm.order.length} • cells drawn: ${grid.length}`;
+}
+
+function refreshAnnotations() {
+  // If user changes chr or bin size after loading, re-filter/re-bin if original text is unavailable.
+  // Minimal approach: keep only rows matching ann.chr (already stored); user can reload file if needed.
+  drawHeatmapOverlay();
+}
+function splitTADsAndLoops() {
+  const T = [], L = [];
+  for (const r of ann.rows) {
+    // consider TAD if x-range ~ y-range (allow small bin-size tolerance)
+    const isTAD = Math.abs((r.x2 - r.x1) - (r.y2 - r.y1)) <= ann.binSize * 0.5
+               && Math.abs(r.x1 - r.y1) <= ann.binSize * 0.5
+               && Math.abs(r.x2 - r.y2) <= ann.binSize * 0.5;
+    if (isTAD) {
+      T.push({ ...r, id: `${r.chr}:${r.x1}-${r.x2}` });
+    } else {
+      // Loop anchor = start bins of each side (use lower bound)
+      const a = Math.min(r.x1, r.x2);
+      const b = Math.min(r.y1, r.y2);
+      const score = (r.features && r.features.length) ? r.features[0] : 1;
+      L.push({ chr: r.chr, a, b, color: r.color, score });
+    }
+  }
+  tadLoop.tads = T;
+  tadLoop.loops = L;
+}
+
+function drawHeatmapOverlay() {
+  if (!hm.g) return;
+  hm.g.selectAll('.annbox').remove();
+  if (!ann.show || !ann.rows.length) return;
+
+  // We need band scales from current heatmap draw
+  // Recreate them from hm.order and the heatmap's width/height in the 'g' bbox
+  const gbox = hm.g.node().getBBox();
+  const width = gbox.width, height = gbox.height;
+  const x = d3.scaleBand().domain(hm.order).range([0, width]).padding(0);
+  const y = d3.scaleBand().domain(hm.order).range([0, height]).padding(0);
+
+  // Helper: convert a bp coordinate to the bin "index" your matrix uses.
+  // Your RAW uses integer IDs that typically equal bin starts (for 1Mb bins: 0, 1e6, 2e6, ...).
+  function coordToKey(bp) {
+    // If your matrix nodes are the bin start positions, use the rounded bin start we computed:
+    return bp; // bpToBin already done in parseBEDPE
+  }
+
+  const bw = x.bandwidth();
+  const bh = y.bandwidth();
+
+  const data = ann.rows
+    .map(r => {
+      const xi = coordToKey(r.x1), xj = coordToKey(r.x2);
+      const yi = coordToKey(r.y1), yj = coordToKey(r.y2);
+      // find band positions for start and end (inclusive range)
+      const xiPix = x(xi), yiPix = y(yi), xjPix = x(xj), yjPix = y(yj);
+      if (xiPix == null || yiPix == null || xjPix == null || yjPix == null) return null;
+
+      // Compute pixel rect covering the bin range (x1..x2, y1..y2)
+      const x0 = Math.min(xiPix, xjPix);
+      const y0 = Math.min(yiPix, yjPix);
+      const w = (Math.abs(xjPix - xiPix) + bw);
+      const h = (Math.abs(yjPix - yiPix) + bh);
+
+      const color = ann.useColorFromFile ? rgbOrFallback(r.color, ann.defaultRGB) : `rgb(${ann.defaultRGB})`;
+      return { x: x0, y: y0, w, h, color, r };
+    })
+    .filter(Boolean);
+
+  hm.g.selectAll('.annbox')
+    .data(data)
+    .enter()
+    .append('rect')
+    .attr('class', 'annbox')
+    .attr('x', d => d.x)
+    .attr('y', d => d.y)
+    .attr('width', d => d.w)
+    .attr('height', d => d.h)
+    .attr('fill', 'none')
+    .attr('stroke', d => d.color)
+    .attr('stroke-width', 1.5)
+    .attr('pointer-events', 'none'); // purely visual overlay
 }
 
 function enableBoxSelect(x, y) {
@@ -131,6 +295,14 @@ function disableBoxSelect() {
   const interK = $('interK'), interKVal = $('interKVal');
   const itersIntra = $('itersIntra'), itersIntraVal = $('itersIntraVal');
   const nodeCountEl = $('nodeCount'), edgeCountEl = $('edgeCount'), comCountEl = $('comCount');
+  // Annotation DOM controls
+  const annFile = document.getElementById('annFile');
+  const annChrInput = document.getElementById('annChr');
+  const binSizeInput = document.getElementById('binSize');
+  const annShowInput = document.getElementById('annShow');
+  const annUseColorInput = document.getElementById('annUseColor');
+  const annColorInput = document.getElementById('annColor');
+
 
   // ---------- Seeded RNG ----------
   let _rng = mulberry32(12345);
@@ -292,7 +464,63 @@ function disableBoxSelect() {
     for (const n of nodes) { let d = 0; for (const m of (adjacency.get(n) || [])) d += (wMap.get(n).get(m) ?? 1); degrees[n] = d; }
 
     const louvainCom = louvainWeighted(nodes, edgesW);
-    clusters = {}; clusterOf = {}; clusterColors = {};
+    // shared across both branches
+    // assign to module-scope (no 'let' here)
+    clusters = {};
+    clusterOf = {};
+    clusterColors = {};
+    order = [];
+    // ---- Optional override: color nodes by TADs instead of Louvain
+    if (useTADClusters.checked) {
+      // Build a palette on the fly
+      console.log('Using TADs for clustering');
+      const colorForTad = (k) => `hsl(${(137.508 * k) % 360},70%,55%)`;
+      // index TADs by numeric id
+      const tadIndex = new Map(); let tcount = 0;
+
+      // assign each node (bin-start string) to a TAD by genomic span
+      for (const id of nodes) {
+        const pos = Number(id); // your node ids are bin starts
+        let tid = -1;
+        for (let i = 0; i < tadLoop.tads.length; i++) {
+          const t = tadLoop.tads[i];
+          if (pos >= t.x1 && pos < t.x2) { tid = i; break; }
+        }
+        const cid = (tid >= 0) ? (tadIndex.has(tid) ? tadIndex.get(tid) : tadIndex.set(tid, tcount).get(tid)) : -1;
+        const clusterId = (cid >= 0) ? cid : 999999; // unassigned goes into one bucket
+        (clusters[clusterId] || (clusters[clusterId] = [])).push(id);
+        clusterOf[id] = clusterId;
+        if (clusterColors[clusterId] == null) clusterColors[clusterId] = (cid >= 0) ? colorForTad(clusterId) : '#888888';
+      }
+
+      // remake order, nodes, indexOf with this cluster grouping (keeps your legend logic intact)
+      order = Object.keys(clusters).map(c => ({ c: +c, size: clusters[c].length }))
+                                        .sort((a, b) => b.size - a.size).map(o => o.c);
+      order.forEach(c => clusters[c].sort((a, b) => degrees[b] - degrees[a] || (a < b ? -1 : 1)));
+      nodes = []; order.forEach(c => nodes.push(...clusters[c])); indexOf = new Map(nodes.map((id, i) => [id, i]));
+      pos = new Array(N); vel = new Array(N);
+      const spread = Math.min(viewW, viewH) || 1000;
+      for (let i = 0; i < N; i++) {
+        pos[i] = { x: rand(-spread * 0.25, spread * 0.25), y: rand(-spread * 0.25, spread * 0.25) };
+        vel[i] = { x: 0, y: 0 };
+      }
+      cam.x = 0; cam.y = 0; cam.scale = 1;
+
+      // Recompute cluster-level meta for layout (so clustered layout still works)
+      buildClusterMeta();
+
+      // Rebuild legend for TAD groups
+      legend.innerHTML = '';
+      for (const c of order) {
+        const chip = document.createElement('div'); chip.className = 'chip';
+        const dot = document.createElement('div'); dot.className = 'dot'; dot.style.background = clusterColors[c];
+        const span = document.createElement('span'); span.textContent = (c === 999999) ? `Unassigned • ${clusters[c].length}` : `TAD ${c} • ${clusters[c].length}`;
+        chip.appendChild(dot); chip.appendChild(span);
+        chip.onclick = () => zoomToCluster(c);
+        legend.appendChild(chip);
+      }
+    } else 
+    {
     for (let i = 0; i < N; i++) {
       const c = louvainCom[i]; const id = nodes[i];
       (clusters[c] || (clusters[c] = [])).push(id); clusterOf[id] = c; if (clusterColors[c] == null) clusterColors[c] = colorFor(c);
@@ -318,8 +546,17 @@ function disableBoxSelect() {
       chip.onclick = () => zoomToCluster(c);
       legend.appendChild(chip);
     }
+    // end of the TAD branch, right after you build the legend
+    nodeCountEl.textContent = N;
+    edgeCountEl.textContent = edges.length;
+    comCountEl.textContent = order.length;
+    setStatus('Laying out…');
+    runLayout();
+    fitView();
+    setStatus('Rendered ✓');
+    resize();
+  }
     nodeCountEl.textContent = N; edgeCountEl.textContent = edges.length; comCountEl.textContent = order.length;
-
     setStatus('Laying out…');
     runLayout();
     fitView();  // auto-fit after upload/selection
@@ -639,7 +876,8 @@ function disableBoxSelect() {
 
   function debounce(fn, ms = 120) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
   const rerunLayout = () => { try { setStatus('Laying out…'); } catch { } try { runLayout(); } catch (e) { console.error(e); } try { fitView(); } catch { } try { setStatus('Rendered ✓'); } catch { } };
-  const rerunLayoutDebounced = debounce(rerunLayout, 120);
+  const rerunLayoutDebounced =
+  (window.rerunLayoutDebounced ||= debounce(rerunLayout, 120));
 
   const side = document.getElementById('side');
   side.addEventListener('input', (e) => {
@@ -692,6 +930,22 @@ function disableBoxSelect() {
   lenScale.addEventListener('input', () => lenScaleVal.textContent = (Number(lenScale.value) / 100).toFixed(2));
   wInfluence.addEventListener('input', () => wInfluenceVal.textContent = wInfluence.value + '%');
   wPercentile.addEventListener('input', () => { wPercentileVal.textContent = wPercentile.value + 'th'; buildClusterMeta(); runLayout(); });
+  annChrInput.addEventListener('change', () => { ann.chr = normalizeChr(annChrInput.value); refreshAnnotations(); });
+  binSizeInput.addEventListener('change', () => { ann.binSize = Math.max(1, Number(binSizeInput.value)||1); refreshAnnotations(); });
+  annShowInput.addEventListener('change', () => { ann.show = annShowInput.checked; drawHeatmapOverlay(); });
+  annUseColorInput.addEventListener('change', () => { ann.useColorFromFile = annUseColorInput.checked; drawHeatmapOverlay(); });
+  annColorInput.addEventListener('change', () => { ann.defaultRGB = annColorInput.value || '0,255,0'; drawHeatmapOverlay(); });
+
+  annFile.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      ann.rows = parseBEDPE(rd.result, ann.chr, ann.binSize);
+      drawHeatmapOverlay(); // draw on current heatmap if present
+    };
+    rd.readAsText(f);
+  });
 
   search.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || !nodes.length) return;

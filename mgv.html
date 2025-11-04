@@ -18,6 +18,55 @@
         <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
         <div id="err"></div>
       </div>
+      <!-- Annotation controls -->
+        <div class="card">
+        <div class="row"><label style="min-width:170px">Annotation file (TADs/loops)</label>
+            <input id="annFile" type="file" accept=".bed,.bedpe,.txt,.tsv" />
+        </div>
+        <div class="row">
+            <label style="min-width:170px">Chromosome (e.g., chr1)</label>
+            <input id="annChr" type="text" value="chr1" />
+        </div>
+        <div class="row">
+            <label style="min-width:170px">Bin size (bp)</label>
+            <input id="binSize" type="number" value="1000000" />
+            <span class="tiny">Used to convert x1/x2/y1/y2 to matrix bin indices</span>
+        </div>
+        <div class="row" style="gap:8px">
+            <label style="flex:1">Show overlay on heatmap</label>
+            <input id="annShow" type="checkbox" checked />
+        </div>
+        <div class="row" style="gap:8px">
+            <label style="flex:1">Use color from file</label>
+            <input id="annUseColor" type="checkbox" checked />
+        </div>
+        <div class="row">
+            <label style="min-width:170px">Default color (RGB)</label>
+            <input id="annColor" type="text" value="0,255,0" />
+            <span class="tiny">Only used if color column missing or unchecked</span>
+        </div>
+        <div class="tiny">
+            Expected columns: <code>chr1 x1 x2 chr2 y1 y2 [color f1..]</code>. Loops or TADs both work.
+            Only rows with <b>chr1==chr2==Chromosome</b> are drawn.
+        </div>
+        </div>
+
+    <div class="card">
+    <div class="row" style="gap:8px">
+        <label style="flex:1">Color nodes by TADs (override)</label>
+        <input id="useTADClusters" type="checkbox" />
+    </div>
+    <div class="row" style="gap:8px">
+        <label style="flex:1">Show loop edges overlay</label>
+        <input id="showLoopEdges" type="checkbox" checked />
+    </div>
+    <div class="row" style="gap:8px">
+        <label style="flex:1">Let loops influence layout</label>
+        <input id="loopsAffectLayout" type="checkbox" />
+    </div>
+    <div class="tiny">Loads TADs/loops from the same annotation file you already parse.</div>
+    </div>
+
 
       <!-- Heatmap card (integrated) -->
       <div class="card" id="heatmapCard">
