@@ -209,18 +209,37 @@ function drawHeatmapOverlay() {
     .filter(Boolean);
 
   hm.g.selectAll('.annbox')
-    .data(data)
-    .enter()
-    .append('rect')
-    .attr('class', 'annbox')
-    .attr('x', d => d.x)
-    .attr('y', d => d.y)
-    .attr('width', d => d.w)
-    .attr('height', d => d.h)
-    .attr('fill', 'none')
-    .attr('stroke', d => d.color)
-    .attr('stroke-width', 1.5)
-    .attr('pointer-events', 'none'); // purely visual overlay
+  .data(data)
+  .enter()
+  .append('rect')
+  .attr('class', 'annbox')
+  .attr('x', d => d.x)
+  .attr('y', d => d.y)
+  .attr('width', d => d.w)
+  .attr('height', d => d.h)
+  .attr('fill', 'none')
+  .attr('stroke', d => d.color)
+  .attr('stroke-width', 1.5)
+  .style('cursor', 'pointer')
+  .on('click', (ev, d) => {
+    // Build RAW lines within the rectangle just like box-select does
+    const picked = [];
+    const bw = x.bandwidth(), bh = y.bandwidth();
+    const box = { x: d.x, y: d.y, w: d.w, h: d.h };
+    for (const i of hm.order) {
+      const xi = x(i);
+      for (const j of hm.order) {
+        const yj = y(j);
+        const hit = !(xi > box.x + box.w || xi + bw < box.x || yj > box.y + box.h || yj + bh < box.y);
+        if (hit) {
+          const v = hm.map.get(i + ',' + j);
+          if (v != null) picked.push(`${i}\t${j}\t${v}`);
+        }
+      }
+    }
+    if (picked.length) { build(picked.join('\n')); }
+  });
+
 }
 
 function enableBoxSelect(x, y) {
