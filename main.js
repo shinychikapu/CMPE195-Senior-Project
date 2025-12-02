@@ -507,6 +507,9 @@ function disableBoxSelect() {
         }
         const cid = (tid >= 0) ? (tadIndex.has(tid) ? tadIndex.get(tid) : tadIndex.set(tid, tcount).get(tid)) : -1;
         const clusterId = (cid >= 0) ? cid : 999999; // unassigned goes into one bucket
+        if (clusterId === 999999) {
+        console.warn(`Node ${id} (pos: ${pos}) not assigned to any TAD.`);
+    }
         (clusters[clusterId] || (clusters[clusterId] = [])).push(id);
         clusterOf[id] = clusterId;
         if (clusterColors[clusterId] == null) clusterColors[clusterId] = (cid >= 0) ? colorForTad(clusterId) : '#888888';
