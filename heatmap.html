@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Hi-C Heatmap (Optimized)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body { font-family: Arial, system-ui, -apple-system; background:#f3f3f3; color:#111; margin:18px; }
+  h1 { font-size:18px; margin:0 0 8px 0; }
+  #controls { display:flex; gap:12px; align-items:center; margin:8px 0 12px 0; flex-wrap:wrap; }
+  #heatmapWrapper { width:800px; height:800px; margin: 10px 0; border:1px solid #999; background:white; position:relative; }
+  #heatmapCanvas { width:100%; height:100%; display:block; cursor:grab; }
+  #progressBarContainer { width:800px; height:14px; background:#ddd; border-radius:6px; overflow:hidden; margin-top:8px; }
+  #progressBar { height:100%; width:0%; background:#4caf50; transition:width .12s linear; }
+  pre { background:#111; color:#ddd; padding:8px; overflow:auto; max-height:200px; }
+  label { font-size:13px; }
+  select,input,button { font-size:13px; padding:6px; }
+  button { cursor:pointer; }
+  small.note { display:block; margin-top:8px; color:#444; }
+</style>
+</head>
+<body>
+<h1>Hi-C Heatmap (Optimized Streaming)</h1>
+
+<div id="controls">
+  <input type="file" id="fileInput" accept=".txt,.tsv,.bed,.raw,.gz,.RAWObserved"/>
+  <label>Bin size:
+    <select id="binSize">
+      <option value="1000000">1 Mb</option>
+      <option value="5000" selected>5 kb</option>
+      <option value="10000">10 kb</option>
+      <option value="15000">15 kb</option>
+      <option value="20000">20 kb</option>
+      <option value="25000">25 kb</option>
+    </select>
+  </label>
+  <label>Tile size (bins): 
+    <select id="tileSize">
+      <option value="256">256</option>
+      <option value="512" selected>512</option>
+      <option value="1024">1024</option>
+    </select>
+  </label>
+  <label>Canvas size:
+    <select id="canvasSize">
+      <option value="600">600</option>
+      <option value="800" selected>800</option>
+      <option value="1000">1000</option>
+      <option value="1400">1400</option>
+    </select>
+  </label>
+  <button id="cancelBtn" disabled>Cancel</button>
+  <button id="selectBtn">Select Rectangle</button>
+</div>
+
+<div id="heatmapWrapper">
+  <canvas id="heatmapCanvas" width="800" height="800"></canvas>
+</div>
+
+<div id="progressBarContainer"><div id="progressBar"></div></div>
+<small class="note">Streams and pre-bins the file efficiently for any resolution.</small>
+
+<h3>Logs</h3>
+<pre id="log" aria-live="polite"></pre>
+
+<script>
+const fileInput = document.getElementById('fileInput');
+const binSizeSelect = document.getElementById('binSize');
+const tileSizeSelect = document.getElementById('tileSize');
+const canvasSizeSelect = document.getElementById('canvasSize');
+const canvas = document.getElementById('heatmapCanvas');
+const ctx = canvas.getContext('2d', {alpha:false});
+const progressBar = document.getElementById('progressBar');
+const logEl = document.getElementById('log');
+const cancelBtn = document.getElementById('cancelBtn');
+const selectBtn = document.getElementById('selectBtn');
+
+let abort=false, scale=1, offsetX=0, offsetY=0, isDragging=false, dragStartX=0, dragStartY=0;
+let imageDataCache=null, selectionMode=false, selectionActive=false;
+let selStartX=0, selStartY=0, selEndX=0, selEndY=0;
+let maxBin=0, buf=null;
+
+function appendLog(...args){ logEl.textContent += args.join(' ')+'\n'; logEl.scrollTop = 9e9; }
+function clearLog(){ logEl.textContent=''; }
+
+selectBtn.onclick = () => {
+    selectionMode=!selectionMode;
+    selectBtn.style.background = selectionMode ? '#4caf50':'';
+};
+
+cancelBtn.addEventListener('click',()=>{ abort=true; cancelBtn.disabled=true; appendLog('User cancelled.'); });
+
+//Gradient
+const GRADIENT = [
+  {offset:0.0,color:[255,255,255]},
+  {offset:0.3,color:[255,200,180]},
+  {offset:0.6,color:[255,120,80]},
+  {offset:1.0,color:[180,0,0]}
+];
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerpColor(c1,c2,t){ return [ Math.round(lerp(c1[0],c2[0],t)), Math.round(lerp(c1[1],c2[1],t)), Math.round(lerp(c1[2],c2[2],t)) ]; }
+function sampleGradient(t){
+  t=Math.max(0,Math.min(1,t));
+  for(let i=1;i<GRADIENT.length;i++){
+    if(t<=GRADIENT[i].offset){
+      const a=GRADIENT[i-1], b=GRADIENT[i];
+      const local=(t-a.offset)/(b.offset-a.offset);
+      return lerpColor(a.color,b.color,local);
+    }
+  }
+  return GRADIENT[GRADIENT.length-1].color;
+}
+
+//Draw canvas
+function drawCanvas(){
+  ctx.save();
+  ctx.setTransform(scale,0,0,scale,offsetX,offsetY);
+  ctx.clearRect(0,0,canvas.width/scale,canvas.height/scale);
+  if(imageDataCache) ctx.putImageData(imageDataCache,0,0);
+  if(selectionActive){
+    ctx.strokeStyle='cyan';
+    ctx.lineWidth=2/scale;
+    ctx.strokeRect(selStartX,selStartY,selEndX-selStartX,selEndY-selStartY);
+  }
+  ctx.restore();
+}
+
+//Mouse
+canvas.addEventListener('mousedown',e=>{
+  const rect = canvas.getBoundingClientRect();
+  if(selectionMode){
+    selectionActive=true;
+    selStartX=(e.clientX-rect.left-offsetX)/scale;
+    selStartY=(e.clientY-rect.top-offsetY)/scale;
+    selEndX=selStartX; selEndY=selStartY;
+  } else {
+    isDragging=true;
+    dragStartX=e.clientX-offsetX;
+    dragStartY=e.clientY-offsetY;
+    canvas.style.cursor='grabbing';
+  }
+});
+
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  if(selectionMode && selectionActive){
+    selEndX=(e.clientX-rect.left-offsetX)/scale;
+    selEndY=(e.clientY-rect.top-offsetY)/scale;
+    drawCanvas();
+  } else if(isDragging){
+    offsetX=e.clientX-dragStartX;
+    offsetY=e.clientY-dragStartY;
+    drawCanvas();
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  if (selectionMode && selectionActive) {
+    selectionActive = false;
+
+    //Get selection bounds in canvas pixels
+    const x0 = Math.min(selStartX, selEndX);
+    const y0 = Math.min(selStartY, selEndY);
+    const x1 = Math.max(selStartX, selEndX);
+    const y1 = Math.max(selStartY, selEndY);
+
+    //Map to bin coordinates
+    const matrixBins = maxBin + 1;
+    const binsPerPixelX = matrixBins / canvas.width;
+    const binsPerPixelY = matrixBins / canvas.height;
+    let binStartX = Math.floor(x0 * binsPerPixelX);
+    let binStartY = Math.floor(y0 * binsPerPixelY);
+    let binEndX = Math.ceil(x1 * binsPerPixelX);
+    let binEndY = Math.ceil(y1 * binsPerPixelY);
+
+    //Decide sampling step if too many bins
+    const MAX_POINTS = 10000; // maximum points to return
+    const stepX = Math.max(1, Math.floor((binEndX - binStartX + 1) / Math.sqrt(MAX_POINTS)));
+    const stepY = Math.max(1, Math.floor((binEndY - binStartY + 1) / Math.sqrt(MAX_POINTS)));
+
+    const points = [];
+    for (let i = binStartX; i <= binEndX; i += stepX) {
+      for (let j = binStartY; j <= binEndY; j += stepY) {
+        //Map bin back to canvas pixel index
+        const px = Math.floor(i * canvas.width / matrixBins);
+        const py = Math.floor(j * canvas.height / matrixBins);
+        const idx = Math.min(py * canvas.width + px, buf.length - 1);
+        points.push({ i, j, value: buf[idx] || 0 });
+      }
+    }
+
+    appendLog(`Points in selection (sampled):`, points);
+    appendLog('Total points returned:', points.length);
+
+    drawCanvas();
+  }
+  isDragging = false;
+  canvas.style.cursor = 'grab';
+});
+
+
+canvas.addEventListener('mouseleave',()=>{ isDragging=false; selectionActive=false; canvas.style.cursor='grab'; });
+
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const zoomFactor=1.1, mouseX=e.offsetX, mouseY=e.offsetY, prevScale=scale;
+  scale=e.deltaY<0? scale*zoomFactor:scale/zoomFactor;
+  scale=Math.max(0.5,Math.min(20,scale));
+  offsetX=mouseX-(mouseX-offsetX)*(scale/prevScale);
+  offsetY=mouseY-(mouseY-offsetY)*(scale/prevScale);
+  drawCanvas();
+});
+
+//File processing
+fileInput.addEventListener('change',async ev=>{
+  const file=ev.target.files[0];
+  if(!file) return;
+  abort=false; cancelBtn.disabled=false; clearLog();
+  appendLog('File selected:',file.name,'size',(file.size/1e6).toFixed(2),'MB');
+
+  const binSize=Number(binSizeSelect.value);
+  const tileSize=Number(tileSizeSelect.value);
+  const canvasSize=Number(canvasSizeSelect.value);
+  canvas.width=canvas.height=canvasSize;
+  offsetX=offsetY=0; scale=1;
+
+  appendLog('Bin size:',binSize,'Tile size:',tileSize,'Canvas:',canvasSize+'px');
+
+  const tileMap=new Map();
+  let totalLines=0, processedLines=0, reader=file.stream().getReader();
+  const decoder=new TextDecoder('utf-8'); let leftover=''; maxBin=0;
+
+  try{
+    while(true){
+      if(abort){ appendLog('Aborted during streaming'); break; }
+      const {done,value}=await reader.read();
+      const chunk=done?null:decoder.decode(value,{stream:true});
+      const text=leftover+(chunk||'');
+      const lines=text.split(/\r?\n/);
+      leftover=lines.pop();
+      for(const line of lines){
+        if(abort) break; totalLines++;
+        if(!line.trim()) continue;
+        const [i,j,v]=line.trim().split(/\s+/).map(Number);
+        if(!isFinite(i)||!isFinite(j)||!isFinite(v)) continue;
+        const bi=Math.floor(i/binSize), bj=Math.floor(j/binSize);
+        maxBin=Math.max(maxBin,bi,bj);
+        const tx=Math.floor(bi/tileSize), ty=Math.floor(bj/tileSize);
+        const lx=bi-tx*tileSize, ly=bj-ty*tileSize;
+        const key=`${tx},${ty}`;
+        let tile=tileMap.get(key);
+        if(!tile){ tile=new Float32Array(tileSize*tileSize); tileMap.set(key,tile); }
+        tile[ly*tileSize+lx]+=Math.log1p(v);
+        if(bi!==bj){
+          const tx2=Math.floor(bj/tileSize), ty2=Math.floor(bi/tileSize);
+          const lx2=bj-tx2*tileSize, ly2=bi-ty2*tileSize;
+          const key2=`${tx2},${ty2}`;
+          let tile2=tileMap.get(key2);
+          if(!tile2){ tile2=new Float32Array(tileSize*tileSize); tileMap.set(key2,tile2); }
+          tile2[ly2*tileSize+lx2]+=Math.log1p(v);
+        }
+        processedLines++;
+      }
+      if(done) break;
+    }
+  }catch(err){ appendLog('Streaming error:',err); return; }
+
+  appendLog('Streaming finished. Lines seen:',totalLines,'processed:',processedLines);
+
+  if(abort) return;
+
+  const matrixBins=maxBin+1, pxW=canvasSize, pxH=canvasSize;
+  if(matrixBins<=0){ appendLog('No data found'); return; }
+
+  buf=new Float32Array(pxW*pxH); let globalMax=0;
+
+  //Aggregate tiles efficiently
+  for(const [key,tile] of tileMap){
+    const [tx,ty]=key.split(',').map(Number);
+    const baseX=tx*tileSize, baseY=ty*tileSize;
+    for(let localY=0; localY<tileSize; localY++){
+      const binY=baseY+localY;
+      if(binY>maxBin) break;
+      const startPy=Math.floor(binY*pxH/matrixBins), endPy=Math.floor((binY+1)*pxH/matrixBins);
+      for(let localX=0; localX<tileSize; localX++){
+        const binX=baseX+localX;
+        if(binX>maxBin) break;
+        const startPx=Math.floor(binX*pxW/matrixBins), endPx=Math.floor((binX+1)*pxW/matrixBins);
+        const val=tile[localY*tileSize+localX]; if(!val) continue;
+        for(let py=startPy; py<Math.max(endPy,startPy+1); py++){
+          if(py>=pxH) continue;
+          for(let px=startPx; px<Math.max(endPx,startPx+1); px++){
+            if(px>=pxW) continue;
+            const idx=py*pxW+px;
+            buf[idx]+=val;
+            if(buf[idx]>globalMax) globalMax=buf[idx];
+          }
+        }
+      }
+    }
+  }
+
+  //Render
+  const imageData=ctx.createImageData(pxW,pxH), data=imageData.data;
+  const denom=Math.log(1+globalMax+1e-6);
+  for(let y=0;y<pxH;y++){
+    for(let x=0;x<pxW;x++){
+      const idx=y*pxW+x, v=buf[idx], t=v>0? Math.log(1+v)/denom:0;
+      const rgb=sampleGradient(t), di=idx*4;
+      data[di]=rgb[0]; data[di+1]=rgb[1]; data[di+2]=rgb[2]; data[di+3]=255;
+    }
+  }
+
+  imageDataCache=imageData;
+  drawCanvas();
+  appendLog('Rendering complete.');
+  cancelBtn.disabled=true;
+});
+</script>
+</body>
+</html>

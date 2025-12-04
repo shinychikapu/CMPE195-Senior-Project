@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Hi-C Heatmap Generator</title>
+  <style>
+    body {
+      background: #eee;
+      color: #111;
+      font-family: Arial;
+    }
+
+    #heatmapContainer {
+      width: 800px;
+      height: 800px;
+      margin: 20px auto;
+      border: 1px solid #444;
+      background: white;
+      position: relative;
+    }
+
+    #progressBarContainer {
+      width: 800px;
+      height: 20px;
+      background: #ccc;
+      margin: 10px auto;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    #progressBar {
+      width: 0%;
+      height: 100%;
+      background: #4caf50;
+      transition: width 0.1s;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Hi-C Heatmap Generator</h2>
+  <input type="file" id="fileInput">
+  <label>Bin size:</label>
+  <select id="binSizeSelect">
+    <option value="5000">5 kb</option>
+    <option value="10000">10 kb</option>
+    <option value="15000">15 kb</option>
+    <option value="20000">20 kb</option>
+    <option value="25000">25 kb</option>
+  </select>
+
+  <div id="progressBarContainer">
+    <div id="progressBar"></div>
+  </div>
+  <div id="heatmapContainer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/visual-heatmap@latest/dist/visualHeatmap.min.js"></script>
+  <script>
+    const container = document.getElementById("heatmapContainer");
+    const containerSize = container.clientWidth;
+
+    function updateProgress(percent) {
+      document.getElementById("progressBar").style.width = percent + "%";
+    }
+
+    document.getElementById("fileInput").addEventListener("change", async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const userBinSize = parseInt(document.getElementById("binSizeSelect").value);
+      const reader = file.stream().getReader();
+      const decoder = new TextDecoder("utf-8");
+      let leftover = "";
+
+      let maxCoord = 0;
+      let totalLines = 0;
+      const pointsMap = new Map();
+
+      console.log("Starting file streaming...");
+
+      async function pump() {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (leftover) processLine(leftover);
+          renderHeatmap();
+          return;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = (leftover + chunk).split(/\r?\n/);
+        leftover = lines.pop();
+
+        lines.forEach(processLine);
+        totalLines += lines.length;
+        if (totalLines % 100000 === 0) updateProgress(Math.min(99, Math.floor(totalLines / 1000000)));
+
+        pump();
+      }
+
+      function processLine(line) {
+        if (!line.trim()) return;
+        const parts = line.trim().split(/\s+/).map(Number);
+        if (parts.length < 3 || parts.some(isNaN)) return;
+
+        const i = Math.floor(parts[0] / userBinSize);
+        const j = Math.floor(parts[1] / userBinSize);
+        const v = parts[2];
+
+        maxCoord = Math.max(maxCoord, i, j);
+
+        const logVal = Math.log1p(v);
+
+        const key = `${i},${j}`;
+        pointsMap.set(key, (pointsMap.get(key) || 0) + logVal);
+      }
+
+      async function renderHeatmap() {
+        updateProgress(100);
+        console.log("File parsed. Points:", pointsMap.size);
+
+        const points = [];
+        pointsMap.forEach((value, key) => {
+          const [x, y] = key.split(",").map(Number);
+          const scaledX = Math.floor(x / maxCoord * containerSize);
+          const scaledY = Math.floor(y / maxCoord * containerSize);
+          points.push({ x: scaledX + 0.5, y: scaledY + 0.5, value });
+        });
+
+        container.innerHTML = "";
+
+        const hm = visualHeatmap(container, {
+          size: 3,
+          min: 0,
+          max: null,
+          gradient: [
+            { color: [255, 255, 255, 1.0], offset: 0.0 },
+            { color: [255, 200, 180, 1.0], offset: 0.3 },
+            { color: [255, 120, 80, 1.0], offset: 0.6 },
+            { color: [180, 0, 0, 1.0], offset: 1.0 }
+          ]
+        });
+
+        hm.renderData(points);
+        console.log("Heatmap render complete!");
+      }
+
+      pump();
+    });
+
+    document.getElementById("binSizeSelect").addEventListener("change", () => {
+      console.warn("Please re-upload the file after changing bin size.");
+    });
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            .navbar {
+                overflow: hidden;
+                font-family: 'Trebuchet MS', sans-serif;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .navbar b {
+                font-size: 30px;
+                color: #3671b9; 
+                padding: 10px 50px;
+            }
+
+            .nav-links {
+                display: flex;
+                gap: 5px;
+                margin-right: 5%;
+            }
+
+            .navbar a {
+                float: right;
+                color: #3671b9;
+                text-align: center;
+                padding: 20px 16px;
+                text-decoration: none;
+                font-size: 17px;
+                margin-right: 1px;
+            }
+
+            .navbar a:hover {
+                color: black;
+            }
+
+            .navbar a.active {
+                color: black;
+                text-decoration: underline;
+            }
+
+            body {
+                background-image:
+                    linear-gradient(rgba(255, 255, 255, 0.6)), /* white tint at 40% opacity */
+                    url('images/pexels-googledeepmind-17484970.jpg');
+                background-size: cover;
+                background-attachment: fixed;
+            }
+
+            .slogan {
+                font-family: 'Trebuchet MS', sans-serif;
+                font-size: 60px;
+                color: #3671b9;
+                width: 600px;
+                margin: 0 auto;
+                text-align: center;
+                margin-top: 10%;
+            }
+
+            .container {
+                font-family: Verdana, Geneva, sans-serif;
+                font-size: 15px;
+                color: #000000;
+                width: 530px;
+                margin: 0 auto;
+                text-align: center;
+                margin-top: 3%;
+                display: flex;
+                justify-content: space-around;
+                display: grid;
+        grid-template-columns: 1fr 1fr 1fr; /* Creates three equal-width columns */
+        gap: 20px; /* Adds space between grid items */
+            }
+
+            .learn {
+                font-family: 'Trebuchet MS', sans-serif;
+                border-radius: 20px;
+                background-color: #3671B9;
+                color: white;
+                border: none;
+                font-size: 18px;
+                text-align: center;
+                width: 10%;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 3% auto 0;
+                text-decoration: none;
+                cursor: pointer;
+            }
+
+            .learn:hover {
+                color: #3671B9;
+                background-color: white;
+            }
+        </style>
+    </head>
+    <body>
+        <div class = "navbar">
+            <b>BioGraph</b>
+            <div class = "nav-links">
+                <a href="homepage.html">Home</a>
+                <a class="active" href="about.html">About</a>
+                <a href="#tools">Tools</a>
+                <a href="tutorial.html">Tutorial</a>
+                <a href="#example">Examples</a>
+            </div>
+        </div>
+        <div class = "slogan">
+            <b>Our aim is to make your job easier</b>
+        </div>
+        <div class="container">
+        <h1>The Problem</h1>
+        <p>Text 1</p>
+        <p>Text 2</p>
+        <p>Text 3</p>
+    </div>
+        <a href="#tools" class="learn">Start Now</a>
+    </body>
+    <footer style="
+        text-align:center;
+        padding:20px;
+        font-size:14px;
+        color:#555;
+        margin-top:170px;">
+        © 2025 BioGraph — All rights reserved.
+    </footer>
+</html>
+<style>
+
+</style>

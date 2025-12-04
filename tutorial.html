@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            .navbar {
+                overflow: hidden;
+                font-family: 'Trebuchet MS', sans-serif;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .navbar b {
+                font-size: 30px;
+                color: #3671b9; 
+                padding: 10px 50px;
+            }
+
+            .nav-links {
+                display: flex;
+                gap: 5px;
+                margin-right: 5%;
+            }
+
+            .navbar a {
+                float: right;
+                color: #3671b9;
+                text-align: center;
+                padding: 20px 16px;
+                text-decoration: none;
+                font-size: 17px;
+                margin-right: 1px;
+            }
+
+            .navbar a:hover {
+                color: black;
+            }
+
+            .navbar a.active {
+                color: black;
+                text-decoration: underline;
+            }
+
+            body {
+                background-image:
+                    linear-gradient(rgba(255, 255, 255, 0.5)), /* white tint at 40% opacity */
+                    url('images/pexels-googledeepmind-17485658.jpg');
+                background-size: cover;
+                background-attachment: fixed;
+            }
+
+            .info {
+                font-family: Verdana, Geneva, sans-serif;
+                font-size: 20px;
+                color: #000000;
+                width: 530px;
+                margin: 0 auto;
+                text-align: center;
+            }
+
+            .vid {
+                display: block; /* Important: video elements are inline by default */
+                margin-left: auto;
+                margin-right: auto;
+                margin-top: 3%;
+                width: 70%;
+                height: 50%;
+                border: 2px solid black;
+                border-radius: 8px;
+            }
+
+            .box {
+                width: 40%;
+                border-radius: 5px;
+                margin-left: auto;
+                margin-right: auto;
+                background-color: rgba(255, 255, 255, 0.5);
+                border: 1px solid black;
+                padding: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class = "navbar">
+            <b>BioGraph</b>
+            <div class = "nav-links">
+                <a href="homepage.html">Home</a>
+                <a href="#about">About</a>
+                <a href="#tools">Tools</a>
+                <a class="active" href="#tutorial">Tutorial</a>
+                <a href="#example">Examples</a>
+            </div>
+        </div>
+        <div class = "box">
+            <div class = "info">
+                <a>A Tutorial to show the basics of our visualization tool</a>
+            </div>
+        </div>
+        <video class = "vid" controls>
+            <source src="images/3195394-uhd_3840_2160_25fps.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <footer style="
+            text-align:center;
+            padding:20px;
+            font-size:14px;
+            color:#555;
+            margin-top:30px;
+        ">
+            © 2025 BioGraph — All rights reserved.
+        </footer>
+    </body>
+</html>
+<style>
+
+</style>
