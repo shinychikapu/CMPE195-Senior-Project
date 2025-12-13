@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="utf-8" />
+    <title>Hi-C RAWobserved – Matrix→Graph Region Visualizer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- D3 for heatmap -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            background: #0b0f14;
+            color: #e6ebf2;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #app {
+            display: flex;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #side {
+            width: 380px;
+            max-width: 420px;
+            min-width: 320px;
+            box-sizing: border-box;
+            padding: 12px 12px 12px 14px;
+            background: radial-gradient(circle at top, #151f30 0, #060a0f 52%, #040507 100%);
+            border-right: 1px solid #111926;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        h3 {
+            margin: 0 0 6px;
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: #f5f7fb;
+        }
+
+        .card {
+            border-radius: 10px;
+            padding: 8px 10px;
+            background: rgba(6, 11, 18, 0.96);
+            box-shadow: 0 0 0 1px rgba(40, 60, 90, 0.4), 0 8px 18px rgba(0, 0, 0, 0.55);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .row label {
+            font-size: 12px;
+            color: #c5d0e0;
+        }
+
+        input[type="range"] {
+            flex: 1;
+        }
+
+        input[type="number"],
+        input[type="text"] {
+            background: #05070c;
+            border-radius: 6px;
+            border: 1px solid #273247;
+            color: #e6ebf2;
+            padding: 3px 6px;
+            font-size: 12px;
+        }
+
+        input[type="text"]::placeholder {
+            color: #5f718e;
+        }
+
+        input[type="file"] {
+            width: 100%;
+        }
+
+        button {
+            border-radius: 999px;
+            border: 1px solid #304567;
+            background: radial-gradient(circle at top, #223554 0, #131a26 60%, #060910 100%);
+            color: #e8f0ff;
+            font-size: 11px;
+            padding: 4px 10px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        button[disabled] {
+            opacity: 0.45;
+            cursor: default;
+        }
+
+        button:hover:not([disabled]) {
+            border-color: #4c7bff;
+            box-shadow: 0 0 0 1px rgba(76, 123, 255, 0.4), 0 0 12px rgba(76, 123, 255, 0.35);
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 6px;
+            border-radius: 999px;
+            border: 1px solid #334363;
+            background: radial-gradient(circle at top, rgba(60, 90, 150, 0.35), rgba(5, 8, 14, 0.9));
+            font-size: 11px;
+            color: #dfe8ff;
+        }
+
+        .tiny {
+            font-size: 11px;
+            color: #8191b0;
+        }
+
+        #status {
+            color: #c3d6ff;
+        }
+
+        #err {
+            color: #ff8080;
+            font-size: 11px;
+        }
+
+        #stage {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at top, #111726 0, #05070c 50%, #020305 100%);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #canvas {
+            flex: 1;
+            display: block;
+        }
+
+        .footer {
+            height: 22px;
+            font-size: 11px;
+            color: #9ba7c3;
+            border-top: 1px solid #111926;
+            padding: 3px 8px 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            background: linear-gradient(to bottom, rgba(10, 15, 25, 0.95), rgba(3, 5, 8, 0.98));
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+            max-height: 150px;
+            overflow: auto;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            font-size: 11px;
+            cursor: pointer;
+            background: radial-gradient(circle at top, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.85));
+        }
+
+        .chip span {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        /* Heatmap area */
+        #heatmapWrap {
+            border: 1px solid #1a2636;
+            border-radius: 10px;
+            background: #0e141c;
+            padding: 8px;
+        }
+
+        #heatmap {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* keep the group inside from pushing the side panel — we hard-size the SVG and draw within it */
+        .selection {
+            fill: rgba(0, 0, 255, 0.3);
+            stroke: #00ff00;
+            stroke-dasharray: 5 4;
+        }
+
+        .selection-handle {
+            fill: rgba(0, 255, 255, 0.9);
+            stroke: #001016;
+            stroke-width: 1;
+            pointer-events: all;
+        }
+    </style>
+
+</head>
+
+<body>
+    <div id="app">
+        <div id="side">
+            <h3>Hi-C RAWobserved – Matrix→Graph Region Visualizer</h3>
+
+            <div class="card">
+                <div class="row"><input id="file" type="file" accept=".RAWobserved,.txt,.tsv" /></div>
+                <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
+                <div id="err"></div>
+            </div>
+
+
+
+            <div class="card">
+                <div class="row" style="justify-content:space-between; gap:6px">
+                    <label>History</label>
+                    <div>
+                        <button id="undoBtn" disabled>Undo (Ctrl+Z)</button>
+                        <button id="redoBtn" disabled>Redo (Ctrl+Shift+Z)</button>
+                    </div>
+                </div>
+                <div class="tiny">
+                    Tracks heatmap selection box, graph sliders, checkboxes, seed, search box, and other UI controls.
+                </div>
+            </div>
+
+            <!-- Heatmap card (integrated) -->
+            <div class="card" id="heatmapCard">
+                <div class="row" style="justify-content:space-between; gap:6px">
+                    <label style="min-width:170px">Hi-C Heatmap (box-select → render graph)</label>
+                    <div>
+                        <button id="hmPan">Pan/Zoom</button>
+                        <button id="hmSelect">Box Select</button>
+                        <button id="hmClear">Clear</button>
+                    </div>
+                </div>
+                <div id="heatmapWrap">
+                    <svg id="heatmap" viewBox="0 0 820 380" preserveAspectRatio="xMidYMid meet"></svg>
+                </div>
+                <div class="tiny" id="hmInfo">—</div>
+            </div>
+
+            <h3 style="margin:0 0 8px">Heatmap Selection Graph – Weight Neighborhoods</h3>
+
+            <div class="card">
+                <label>Find node</label>
+                <input id="search" type="text" placeholder="Type node id … (e.g., 1000000) and press Enter" />
+                <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: neighbors • Click a cluster chip to zoom.
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="row"><label style="min-width:170px">Edge opacity (base)</label>
+                    <input id="edgeAlpha" type="range" min="5" max="80" value="80" />
+                    <span id="edgeAlphaVal" class="tag">0.80</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Opacity weight gamma</label>
+                    <input id="alphaGamma" type="range" min="0" max="100" value="40" />
+                    <span id="alphaGammaVal" class="tag">40</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Label density</label>
+                    <input id="labelPct" type="range" min="0" max="100" value="0" />
+                    <span id="labelPctVal" class="tag">0%</span>
+                </div>
+                <div class="row" style="gap:6px"><label style="flex:1">Show inter-cluster edges</label><input
+                        id="toggleCross" type="checkbox" checked /></div>
+                <div class="row" style="gap:6px"><label style="flex:1">Show self-edges</label><input id="toggleSelf"
+                        type="checkbox" checked /></div>
+            </div>
+
+            <div class="card">
+                <div class="row"><label style="min-width:170px">Layout iterations</label>
+                    <input id="iters" type="range" min="10" max="200" value="40" />
+                    <span id="itersVal" class="tag">40</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Spring strength (kSpring)</label>
+                    <input id="kSpring" type="range" min="10" max="300" value="120" />
+                    <span id="kSpringVal" class="tag">120</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Repulsion strength (kRepel)</label>
+                    <input id="kRepel" type="range" min="10" max="300" value="80" />
+                    <span id="kRepelVal" class="tag">80</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Gravity toward center</label>
+                    <input id="kGravity" type="range" min="0" max="200" value="40" />
+                    <span id="kGravityVal" class="tag">40</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="row"><label style="min-width:170px">Weight exponent</label>
+                    <input id="wExp" type="range" min="0" max="300" value="100" />
+                    <span id="wExpVal" class="tag">100</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Baseline edge length</label>
+                    <input id="lenScale" type="range" min="10" max="300" value="80" />
+                    <span id="lenScaleVal" class="tag">80</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Weight percentile cutoff</label>
+                    <input id="wPercentile" type="range" min="0" max="100" value="0" />
+                    <span id="wPercentileVal" class="tag">0</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Weight influence</label>
+                    <input id="wInfluence" type="range" min="0" max="100" value="100" />
+                    <span id="wInfluenceVal" class="tag">100</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="row" style="gap:8px">
+                    <label style="flex:1">Cluster-aware layout</label><input id="toggleClusterLayout" type="checkbox"
+                        checked />
+                </div>
+                <div class="row" style="gap:8px">
+                    <label style="flex:1">Spectral init</label><input id="toggleSpectral" type="checkbox" />
+                </div>
+                <div class="row"><label style="min-width:170px">Cluster separation multiplier</label>
+                    <input id="sepMult" type="range" min="20" max="300" value="120" />
+                    <span id="sepMultVal" class="tag">120</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Inter-cluster spring</label>
+                    <input id="interK" type="range" min="0" max="200" value="80" />
+                    <span id="interKVal" class="tag">80</span>
+                </div>
+                <div class="row"><label style="min-width:170px">Intra-cluster iterations</label>
+                    <input id="itersIntra" type="range" min="0" max="200" value="40" />
+                    <span id="itersIntraVal" class="tag">40</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="row" style="gap:8px">
+                    <label style="flex:1">Deterministic layout</label><input id="deterministic" type="checkbox" />
+                </div>
+                <div class="row"><label style="min-width:170px">Seed</label><input id="seed" type="number" min="1"
+                        max="999999" value="1" /></div>
+                <label>Clusters (color/legend)</label>
+                <div id="legend" class="legend"></div>
+            </div>
+        </div>
+
+        <div id="stage">
+            <canvas id="canvas"></canvas>
+            <div class="footer">Nodes: <span id="nodeCount">0</span> • Edges: <span id="edgeCount">0</span> • Clusters:
+                <span id="comCount">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Integrated scripts ===== -->
+
+    <script>
+        (function () {
+            // ---------- DOM ----------
+            const $ = id => document.getElementById(id);
+
+            const fileInput = $('file');
+            const statusEl = $('status');
+            const errEl = $('err');
+            const hmInfo = $('hmInfo');
+            const heatmapSvg = d3.select('#heatmap');
+
+            const searchInput = $('search');
+            const legendEl = $('legend');
+
+            // Graph controls
+            const edgeAlpha = $('edgeAlpha'), edgeAlphaVal = $('edgeAlphaVal');
+            const alphaGamma = $('alphaGamma'), alphaGammaVal = $('alphaGammaVal');
+            const labelPct = $('labelPct'), labelPctVal = $('labelPctVal');
+            const toggleCross = $('toggleCross'), toggleSelf = $('toggleSelf');
+            const toggleClusterLayout = $('toggleClusterLayout'), toggleSpectral = $('toggleSpectral');
+            const deterministic = $('deterministic'), seedInput = $('seed');
+            const iters = $('iters'), itersVal = $('itersVal');
+            const kSpring = $('kSpring'), kSpringVal = $('kSpringVal');
+            const kRepel = $('kRepel'), kRepelVal = $('kRepelVal');
+            const kGravity = $('kGravity'), kGravityVal = $('kGravityVal');
+            const wExp = $('wExp'), wExpVal = $('wExpVal');
+            const lenScale = $('lenScale'), lenScaleVal = $('lenScaleVal');
+            const wPercentile = $('wPercentile'), wPercentileVal = $('wPercentileVal');
+            const wInfluence = $('wInfluence'), wInfluenceVal = $('wInfluenceVal');
+            const sepMult = $('sepMult'), sepMultVal = $('sepMultVal');
+            const interK = $('interK'), interKVal = $('interKVal');
+            const itersIntra = $('itersIntra'), itersIntraVal = $('itersIntraVal');
+
+            const nodeCountEl = $('nodeCount');
+            const edgeCountEl = $('edgeCount');
+            const comCountEl = $('comCount');
+
+            const undoBtn = $('undoBtn');
+            const redoBtn = $('redoBtn');
+
+            const stage = $('stage');
+            const canvas = $('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // ---------- Resize canvas ----------
+            let viewWidth = 800;
+            let viewHeight = 600;
+
+            function resizeCanvas() {
+                const rect = stage.getBoundingClientRect();
+                viewWidth = rect.width;
+                viewHeight = rect.height - 24; // leave room for footer
+                canvas.width = viewWidth;
+                canvas.height = viewHeight;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            // ---------- Undo / Redo Manager ----------
+            function createUndoManager() {
+                const history = [];
+                let index = -1;
+
+                const mgr = {
+                    suppress: false,
+
+                    push(action) {
+                        if (mgr.suppress || !action) return;
+                        if (index < history.length - 1) history.splice(index + 1);
+                        history.push(action);
+                        index = history.length - 1;
+                        updateButtons();
+                    },
+                    canUndo() { return index >= 0; },
+                    canRedo() { return index + 1 < history.length; },
+                    undo() {
+                        if (!mgr.canUndo()) return;
+                        const action = history[index];
+                        mgr.suppress = true;
+                        try {
+                            if (action.undo) action.undo();
+                        } finally {
+                            mgr.suppress = false;
+                        }
+                        index--;
+                        updateButtons();
+                    },
+                    redo() {
+                        if (!mgr.canRedo()) return;
+                        index++;
+                        const action = history[index];
+                        mgr.suppress = true;
+                        try {
+                            if (action.redo) action.redo();
+                        } finally {
+                            mgr.suppress = false;
+                        }
+                        updateButtons();
+                    }
+                };
+
+                function updateButtons() {
+                    if (undoBtn) undoBtn.disabled = !mgr.canUndo();
+                    if (redoBtn) redoBtn.disabled = !mgr.canRedo();
+                }
+
+                // Initialize button state
+                setTimeout(updateButtons, 0);
+
+                return mgr;
+            }
+
+            const undoManager = createUndoManager();
+            window.undoManager = undoManager;
+
+            if (undoBtn) undoBtn.addEventListener('click', () => undoManager.undo());
+            if (redoBtn) redoBtn.addEventListener('click', () => undoManager.redo());
+
+            window.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase();
+                if (e.ctrlKey && !e.metaKey && !e.altKey && key === 'z') {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                        undoManager.redo();
+                    } else {
+                        undoManager.undo();
+                    }
+                }
+            });
+
+            // ---------- Helper: control tracking for undo ----------
+            function setControlValue(el, raw) {
+                if (!el) return;
+                const str = String(raw);
+                if (el.type === 'checkbox') {
+                    el.checked = (str === 'true' || str === '1' || str === 'on');
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                } else {
+                    el.value = str;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+            function setControlValueById(id, raw) {
+                const el = $(id);
+                if (el) setControlValue(el, raw);
+            }
+
+            function trackControl(id) {
+                const el = $(id);
+                if (!el) return;
+
+                const isCheckbox = el.type === 'checkbox';
+                const eventType = isCheckbox ? 'change' : 'input';
+                const getVal = () => isCheckbox ? (el.checked ? 'true' : 'false') : el.value;
+
+                el.addEventListener('focusin', () => { el._undoPrev = getVal(); });
+                el.addEventListener('mousedown', () => { el._undoPrev = getVal(); }, { capture: true });
+
+                el.addEventListener(eventType, () => {
+                    if (!window.undoManager || window.undoManager.suppress) {
+                        el._undoPrev = getVal();
+                        return;
+                    }
+                    const prev = el._undoPrev ?? getVal();
+                    const curr = getVal();
+                    if (prev === curr) return;
+
+                    const targetId = id;
+                    const prevCopy = prev;
+                    const nextCopy = curr;
+
+                    window.undoManager.push({
+                        type: 'control',
+                        targetId,
+                        prev: prevCopy,
+                        next: nextCopy,
+                        undo() { setControlValueById(targetId, prevCopy); },
+                        redo() { setControlValueById(targetId, nextCopy); }
+                    });
+
+                    el._undoPrev = curr;
+                });
+            }
+
+            const trackedControls = [
+                'edgeAlpha', 'alphaGamma', 'labelPct',
+                'toggleCross', 'toggleSelf',
+                'iters', 'kSpring', 'kRepel', 'kGravity',
+                'wExp', 'lenScale', 'wPercentile', 'wInfluence',
+                'toggleClusterLayout', 'toggleSpectral',
+                'deterministic', 'seed',
+                'sepMult', 'interK', 'itersIntra',
+                'search'
+            ];
+            trackedControls.forEach(trackControl);
+
+            // ---------- Status helpers ----------
+            function setStatus(msg) {
+                if (statusEl) statusEl.textContent = msg;
+            }
+            function setError(msg) {
+                if (errEl) errEl.textContent = msg || '';
+            }
+
+            // ---------- Heatmap state ----------
+            const hm = {
+                svg: heatmapSvg,
+                g: null,
+                zoom: null,
+                data: [],
+                order: [],
+                map: null,
+                info: hmInfo,
+                zTransform: null,
+                xScale: null,
+                yScale: null,
+                selectionState: null,
+                selectionGroup: null,
+                selectionRect: null
+            };
+
+            function parseRAW(text) {
+                const out = [];
+                const lines = String(text || '').trim().split(/[\r\n]+/);
+                for (const line of lines) {
+                    const p = line.trim().split(/\s+/);
+                    if (p.length < 2) continue;
+                    const i = +p[0], j = +p[1], v = p[2] ? +p[2] : 1;
+                    if (Number.isFinite(i) && Number.isFinite(j) && Number.isFinite(v)) {
+                        out.push({ i, j, value: v });
+                    }
+                }
+                return out;
+            }
+
+            let rawMatrixText = '';
+
+            function drawHeatmap(rawText) {
+                rawMatrixText = rawText;
+                const triples = parseRAW(rawText);
+                if (!triples.length) {
+                    hm.info.textContent = 'No valid i j value lines.';
+                    return;
+                }
+
+                // Build node order
+                const nodesSet = new Set();
+                let maxVal = 0;
+                for (const t of triples) {
+                    nodesSet.add(t.i);
+                    nodesSet.add(t.j);
+                    if (t.value > maxVal) maxVal = t.value;
+                }
+                const order = Array.from(nodesSet).sort((a, b) => a - b);
+                hm.order = order;
+                hm.data = triples;
+
+                // map lookup
+                const map = new Map();
+                for (const t of triples) {
+                    map.set(t.i + ',' + t.j, t.value);
+                }
+                hm.map = map;
+
+                // Layout
+                const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+                const innerW = 780 - margin.left - margin.right;
+                const innerH = 340 - margin.top - margin.bottom;
+                const size = Math.min(innerW, innerH);
+
+                const x = d3.scaleBand().domain(order).range([0, size]).padding(0);
+                const y = d3.scaleBand().domain(order).range([0, size]).padding(0);
+                hm.xScale = x;
+                hm.yScale = y;
+
+                hm.svg.selectAll('*').remove();
+                const g = hm.svg
+                    .attr('viewBox', '0 0 820 380')
+                    .append('g')
+                    .attr('transform', `translate(${margin.left},${margin.top})`);
+                hm.g = g;
+
+                const color = d3.scaleSequential(d3.interpolateTurbo)
+                    .domain([0, maxVal || 1]);
+
+                const grid = [];
+                for (const t of triples) {
+                    grid.push(t);
+                }
+
+                g.selectAll('rect.cell')
+                    .data(grid)
+                    .enter()
+                    .append('rect')
+                    .attr('class', 'cell')
+                    .attr('x', d => x(d.i))
+                    .attr('y', d => y(d.j))
+                    .attr('width', x.bandwidth())
+                    .attr('height', y.bandwidth())
+                    .attr('fill', d => color(d.value));
+
+                // Reset selection
+                if (hm.selectionGroup) {
+                    hm.selectionGroup.remove();
+                    hm.selectionGroup = null;
+                    hm.selectionRect = null;
+                }
+                hm.selectionState = null;
+
+                // Zoom/pan
+                hm.zoom = d3.zoom()
+                    .scaleExtent([0.5, 12])
+                    .on('zoom', (ev) => {
+                        g.attr('transform', `translate(${margin.left},${margin.top}) ` + ev.transform);
+                        hm.zTransform = ev.transform;
+                    });
+
+                hm.svg.call(hm.zoom).on('dblclick.zoom', null);
+
+                d3.select('#hmPan').on('click', () => {
+                    disableBoxSelect();
+                    hm.svg.call(hm.zoom);
+                });
+                d3.select('#hmSelect').on('click', () => enableBoxSelect());
+                d3.select('#hmClear').on('click', () => {
+                    if (!hm.selectionState) return;
+                    const prev = { ...hm.selectionState };
+                    setSelectionState(null, false);
+                    recordSelectionChange(prev, null);
+                });
+
+                hm.info.textContent = `Matrix: ${order.length}×${order.length} • nonzero cells: ${triples.length}`;
+            }
+            // ---------- Selection helpers ----------
+            function selectionEquals(a, b) {
+                if (!a && !b) return true;
+                if (!a || !b) return false;
+                return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+            }
+
+            function recordSelectionChange(prevState, nextState) {
+                const mgr = window.undoManager;
+                if (!mgr || mgr.suppress) return;
+                if (selectionEquals(prevState, nextState)) return;
+                const prevCopy = prevState ? { ...prevState } : null;
+                const nextCopy = nextState ? { ...nextState } : null;
+                mgr.push({
+                    type: 'heatmap-selection',
+                    prev: prevCopy,
+                    next: nextCopy,
+                    undo() { setSelectionState(prevCopy, true); },
+                    redo() { setSelectionState(nextCopy, true); }
+                });
+            }
+
+            function applySelectionBox() {
+                if (!hm.selectionState || !hm.xScale || !hm.yScale || !hm.map) return;
+                const { x, y, width, height } = hm.selectionState;
+                const xs = hm.xScale;
+                const ys = hm.yScale;
+                const bw = xs.bandwidth();
+                const bh = ys.bandwidth();
+                const picked = [];
+
+                for (const i of hm.order) {
+                    const xi = xs(i);
+                    for (const j of hm.order) {
+                        const yj = ys(j);
+                        const hit = !(
+                            xi > x + width ||
+                            xi + bw < x ||
+                            yj > y + height ||
+                            yj + bh < y
+                        );
+                        if (hit) {
+                            const v = hm.map.get(i + ',' + j);
+                            if (v != null) picked.push({ source: i, target: j, weight: v });
+                        }
+                    }
+                }
+
+                if (picked.length) {
+                    buildGraphFromEdges(picked);
+                    hm.info.textContent = `Selection: ${picked.length} edges in box`;
+                } else {
+                    hm.info.textContent = 'Selection: no nonzero cells in box';
+                }
+            }
+
+            function syncSelectionVisual() {
+                if (!hm.g) return;
+
+                // No selection: remove visuals
+                if (!hm.selectionState) {
+                    if (hm.selectionGroup) {
+                        hm.selectionGroup.remove();
+                        hm.selectionGroup = null;
+                        hm.selectionRect = null;
+                    }
+                    return;
+                }
+
+                const s = hm.selectionState;
+
+                if (!hm.selectionGroup) {
+                    hm.selectionGroup = hm.g.append('g').attr('class', 'selection-group');
+                }
+                if (!hm.selectionRect) {
+                    hm.selectionRect = hm.selectionGroup.append('rect').attr('class', 'selection');
+                }
+
+                hm.selectionRect
+                    .attr('x', s.x)
+                    .attr('y', s.y)
+                    .attr('width', s.width)
+                    .attr('height', s.height);
+
+                // Remove old handles and add 8 new ones
+                hm.selectionGroup.selectAll('.selection-handle').remove();
+
+                const x0 = s.x;
+                const y0 = s.y;
+                const x1 = s.x + s.width;
+                const y1 = s.y + s.height;
+                const cx = (x0 + x1) / 2;
+                const cy = (y0 + y1) / 2;
+                const size = 6;
+
+                const handles = [
+                    { x: x0, y: y0, edge: 'nw', cursor: 'nwse-resize' },
+                    { x: cx, y: y0, edge: 'n', cursor: 'ns-resize' },
+                    { x: x1, y: y0, edge: 'ne', cursor: 'nesw-resize' },
+                    { x: x1, y: cy, edge: 'e', cursor: 'ew-resize' },
+                    { x: x1, y: y1, edge: 'se', cursor: 'nwse-resize' },
+                    { x: cx, y: y1, edge: 's', cursor: 'ns-resize' },
+                    { x: x0, y: y1, edge: 'sw', cursor: 'nesw-resize' },
+                    { x: x0, y: cy, edge: 'w', cursor: 'ew-resize' }
+                ];
+
+                // Drag whole box
+                const dragBox = d3.drag()
+                    .on('start', function (ev) {
+                        if (!hm.selectionState) return;
+                        const p = d3.pointer(ev, hm.g.node());
+                        this.__dragStart = {
+                            state: { ...hm.selectionState },
+                            sx: p[0],
+                            sy: p[1]
+                        };
+                    })
+                    .on('drag', function (ev) {
+                        const start = this.__dragStart;
+                        if (!start) return;
+                        const p = d3.pointer(ev, hm.g.node());
+                        const dx = p[0] - start.sx;
+                        const dy = p[1] - start.sy;
+                        hm.selectionState = {
+                            x: start.state.x + dx,
+                            y: start.state.y + dy,
+                            width: start.state.width,
+                            height: start.state.height
+                        };
+                        syncSelectionVisual();
+                    })
+                    .on('end', function () {
+                        const start = this.__dragStart;
+                        if (!start) return;
+                        const prev = start.state;
+                        const next = hm.selectionState ? { ...hm.selectionState } : null;
+                        applySelectionBox();
+                        recordSelectionChange(prev, next);
+                        this.__dragStart = null;
+                    });
+
+                hm.selectionRect.call(dragBox);
+
+                function resizedState(base, edge, dx, dy) {
+                    const minSize = 5;
+                    let x = base.x, y = base.y, w = base.width, h = base.height;
+
+                    if (edge.indexOf('w') !== -1) {
+                        x = base.x + dx;
+                        w = base.width - dx;
+                    }
+                    if (edge.indexOf('e') !== -1) {
+                        w = base.width + dx;
+                    }
+                    if (edge.indexOf('n') !== -1) {
+                        y = base.y + dy;
+                        h = base.height - dy;
+                    }
+                    if (edge.indexOf('s') !== -1) {
+                        h = base.height + dy;
+                    }
+
+                    if (w < minSize) {
+                        const diff = minSize - w;
+                        if (edge.indexOf('w') !== -1) x -= diff;
+                        w = minSize;
+                    }
+                    if (h < minSize) {
+                        const diff = minSize - h;
+                        if (edge.indexOf('n') !== -1) y -= diff;
+                        h = minSize;
+                    }
+                    return { x, y, width: w, height: h };
+                }
+
+                const resizeDrag = d3.drag()
+                    .on('start', function (ev, d) {
+                        if (!hm.selectionState) return;
+                        const p = d3.pointer(ev, hm.g.node());
+                        this.__resizeStart = {
+                            state: { ...hm.selectionState },
+                            sx: p[0],
+                            sy: p[1],
+                            edge: d.edge
+                        };
+                    })
+                    .on('drag', function (ev, d) {
+                        const start = this.__resizeStart;
+                        if (!start) return;
+                        const p = d3.pointer(ev, hm.g.node());
+                        const dx = p[0] - start.sx;
+                        const dy = p[1] - start.sy;
+                        hm.selectionState = resizedState(start.state, start.edge, dx, dy);
+                        syncSelectionVisual();
+                    })
+                    .on('end', function () {
+                        const start = this.__resizeStart;
+                        if (!start) return;
+                        const prev = start.state;
+                        const next = hm.selectionState ? { ...hm.selectionState } : null;
+                        applySelectionBox();
+                        recordSelectionChange(prev, next);
+                        this.__resizeStart = null;
+                    });
+
+                hm.selectionGroup.selectAll('.selection-handle')
+                    .data(handles)
+                    .enter()
+                    .append('rect')
+                    .attr('class', 'selection-handle')
+                    .attr('x', d => d.x - size / 2)
+                    .attr('y', d => d.y - size / 2)
+                    .attr('width', size)
+                    .attr('height', size)
+                    .style('cursor', d => d.cursor)
+                    .call(resizeDrag);
+            }
+
+            function setSelectionState(state, updateGraph) {
+                if (state) {
+                    hm.selectionState = {
+                        x: state.x,
+                        y: state.y,
+                        width: state.width,
+                        height: state.height
+                    };
+                } else {
+                    hm.selectionState = null;
+                }
+                syncSelectionVisual();
+                if (updateGraph && hm.selectionState) {
+                    applySelectionBox();
+                }
+            }
+
+            function enableBoxSelect() {
+                if (!hm.svg || !hm.g) return;
+                hm.svg.on('.zoom', null);
+
+                let start = null;
+                let dragRect = null;
+
+                hm.svg.on('mousedown.box', (ev) => {
+                    const p = d3.pointer(ev, hm.g.node());
+                    start = { x: p[0], y: p[1] };
+                    if (dragRect) dragRect.remove();
+                    dragRect = hm.g.append('rect')
+                        .attr('class', 'selection')
+                        .attr('x', start.x)
+                        .attr('y', start.y)
+                        .attr('width', 0)
+                        .attr('height', 0);
+                });
+
+                hm.svg.on('mousemove.box', (ev) => {
+                    if (!start || !dragRect) return;
+                    const p = d3.pointer(ev, hm.g.node());
+                    const x0 = Math.min(start.x, p[0]);
+                    const y0 = Math.min(start.y, p[1]);
+                    const w = Math.abs(p[0] - start.x);
+                    const h = Math.abs(p[1] - start.y);
+                    dragRect
+                        .attr('x', x0)
+                        .attr('y', y0)
+                        .attr('width', w)
+                        .attr('height', h);
+                });
+
+                hm.svg.on('mouseup.box', () => {
+                    if (!start || !dragRect) {
+                        disableBoxSelect();
+                        return;
+                    }
+                    const box = dragRect.node().getBBox();
+                    dragRect.remove();
+                    dragRect = null;
+
+                    const prev = hm.selectionState ? { ...hm.selectionState } : null;
+                    const next = {
+                        x: box.x,
+                        y: box.y,
+                        width: box.width,
+                        height: box.height
+                    };
+                    setSelectionState(next, true);
+                    recordSelectionChange(prev, next);
+                    disableBoxSelect();
+                });
+            }
+
+            function disableBoxSelect() {
+                hm.svg.on('mousedown.box', null)
+                    .on('mousemove.box', null)
+                    .on('mouseup.box', null);
+                if (hm.zoom) hm.svg.call(hm.zoom);
+            }
+
+            // ---------- Graph state ----------
+            const graph = {
+                nodes: new Map(), // id -> node
+                edges: [],        // {source,target,weight}
+                simulation: null,
+                clusterIds: [],
+                nodeArray: [],
+                maxWeight: 1
+            };
+
+            // View transform for pan/zoom
+            const view = { tx: 0, ty: 0, k: 1 };
+
+            function randomFromSeed(seed) {
+                // simple LCG
+                let x = seed >>> 0;
+                return function () {
+                    x = (1664525 * x + 1013904223) >>> 0;
+                    return x / 0xffffffff;
+                };
+            }
+
+            function buildGraphFromEdges(edgeList) {
+                graph.nodes.clear();
+                graph.edges.length = 0;
+
+                let maxW = 0;
+                for (const e of edgeList) {
+                    const sId = String(e.source);
+                    const tId = String(e.target);
+                    const w = Number(e.weight) || 1;
+                    if (!graph.nodes.has(sId)) graph.nodes.set(sId, { id: sId, degree: 0 });
+                    if (!graph.nodes.has(tId)) graph.nodes.set(tId, { id: tId, degree: 0 });
+                    graph.edges.push({ source: sId, target: tId, weight: w });
+                }
+
+                for (const e of graph.edges) {
+                    graph.nodes.get(e.source).degree++;
+                    graph.nodes.get(e.target).degree++;
+                    if (e.weight > maxW) maxW = e.weight;
+                }
+                graph.maxWeight = maxW || 1;
+                graph.nodeArray = Array.from(graph.nodes.values());
+
+                // Simple connected-component clustering
+                const adj = new Map();
+                for (const n of graph.nodeArray) adj.set(n.id, []);
+                for (const e of graph.edges) {
+                    adj.get(e.source).push(e.target);
+                    adj.get(e.target).push(e.source);
+                }
+
+                let clusterIndex = 0;
+                const clusterIds = [];
+                const visited = new Set();
+                for (const n of graph.nodeArray) {
+                    if (visited.has(n.id)) continue;
+                    const cid = clusterIndex++;
+                    const stack = [n.id];
+                    while (stack.length) {
+                        const v = stack.pop();
+                        if (visited.has(v)) continue;
+                        visited.add(v);
+                        const node = graph.nodes.get(v);
+                        node.cluster = cid;
+                        clusterIds[cid] = true;
+                        for (const nb of adj.get(v)) {
+                            if (!visited.has(nb)) stack.push(nb);
+                        }
+                    }
+                }
+                graph.clusterIds = clusterIds.map((_, i) => i);
+
+                // Legend chips
+                legendEl.innerHTML = '';
+                const color = d3.scaleOrdinal(d3.schemeCategory10);
+                for (const cid of graph.clusterIds) {
+                    const chip = document.createElement('span');
+                    chip.className = 'chip';
+                    chip.textContent = `Cluster ${cid}`;
+                    chip.style.background = color(cid);
+                    chip.addEventListener('click', () => {
+                        // Center view on that cluster
+                        centerOnCluster(cid);
+                    });
+                    legendEl.appendChild(chip);
+                }
+
+                // Update counts
+                nodeCountEl.textContent = String(graph.nodeArray.length);
+                edgeCountEl.textContent = String(graph.edges.length);
+                comCountEl.textContent = String(graph.clusterIds.length);
+
+                setStatus('Laying out…');
+                initLayout();
+            }
+
+            function centerOnCluster(cid) {
+                const nodes = graph.nodeArray.filter(n => n.cluster === cid);
+                if (!nodes.length) return;
+                let cx = 0, cy = 0;
+                for (const n of nodes) { cx += n.x || 0; cy += n.y || 0; }
+                cx /= nodes.length;
+                cy /= nodes.length;
+                view.k = 1.5;
+                view.tx = viewWidth / 2 - cx * view.k;
+                view.ty = viewHeight / 2 - cy * view.k;
+            }
+
+            function initLayout() {
+                const nodes = graph.nodeArray;
+                const edges = graph.edges;
+
+                if (!nodes.length) {
+                    setStatus('No edges in selection.');
+                    drawGraph();
+                    return;
+                }
+
+                const useDeterministic = deterministic && deterministic.checked;
+                let rand = Math.random;
+                if (useDeterministic) {
+                    const seedVal = parseInt(seedInput.value || '1', 10) || 1;
+                    rand = randomFromSeed(seedVal);
+                }
+
+                // Initial positions
+                const R = Math.min(viewWidth, viewHeight) * 0.4;
+                const total = nodes.length;
+                nodes.forEach((n, idx) => {
+                    const angle = (idx / total) * 2 * Math.PI;
+                    const r = R * (0.5 + 0.5 * rand());
+                    n.x = viewWidth / 2 + r * Math.cos(angle);
+                    n.y = viewHeight / 2 + r * Math.sin(angle);
+                });
+
+                if (graph.simulation) {
+                    graph.simulation.stop();
+                }
+
+                const linkDistanceBase = parseFloat(lenScale.value || '80') || 80;
+                const linkForce = d3.forceLink(edges)
+                    .id(d => d.id)
+                    .distance(e => {
+                        const norm = Math.pow(e.weight / graph.maxWeight, parseFloat(wExp.value || '1') || 1);
+                        const inv = 1 / (0.2 + norm);
+                        return linkDistanceBase * inv;
+                    })
+                    .strength(0.5);
+
+                const chargeForce = d3.forceManyBody()
+                    .strength(- (parseFloat(kRepel.value || '80') || 80));
+
+                const centerForce = d3.forceCenter(viewWidth / 2, viewHeight / 2);
+
+                const gravityForce = d3.forceRadial(
+                    Math.min(viewWidth, viewHeight) * 0.25,
+                    viewWidth / 2,
+                    viewHeight / 2
+                ).strength((parseFloat(kGravity.value || '10') || 10) / 1000);
+
+                const sim = d3.forceSimulation(nodes)
+                    .force('link', linkForce)
+                    .force('charge', chargeForce)
+                    .force('center', centerForce)
+                    .force('radial', gravityForce)
+                    .alpha(1)
+                    .alphaDecay(1 / ((parseFloat(iters.value || '40') || 40) + 20));
+
+                sim.on('tick', drawGraph);
+                sim.on('end', () => setStatus('Rendered ✓'));
+
+                graph.simulation = sim;
+            }
+
+            // ---------- Graph drawing ----------
+            function clearCanvas() {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            function drawGraph() {
+                clearCanvas();
+                ctx.save();
+                ctx.translate(view.tx, view.ty);
+                ctx.scale(view.k, view.k);
+
+                const nodes = graph.nodeArray;
+                const edges = graph.edges;
+
+                const maxW = graph.maxWeight || 1;
+                const baseAlpha = (parseFloat(edgeAlpha.value || '80') || 80) / 100;
+                const gamma = (parseFloat(alphaGamma.value || '40') || 40) / 40;
+
+                // Draw edges
+                ctx.lineWidth = 1;
+                for (const e of edges) {
+                    const s = graph.nodes.get(e.source);
+                    const t = graph.nodes.get(e.target);
+                    if (!s || !t) continue;
+
+                    // self edges
+                    if (!toggleSelf.checked && e.source === e.target) continue;
+
+                    // cross-cluster edges
+                    if (!toggleCross.checked && s.cluster != null && t.cluster != null && s.cluster !== t.cluster) {
+                        continue;
+                    }
+
+                    const norm = Math.max(0.0001, e.weight / maxW);
+                    const alpha = baseAlpha * Math.pow(norm, gamma);
+
+                    ctx.globalAlpha = Math.min(1, Math.max(0.02, alpha));
+                    ctx.beginPath();
+                    ctx.moveTo(s.x, s.y);
+                    ctx.lineTo(t.x, t.y);
+                    ctx.strokeStyle = '#66aaff';
+                    ctx.stroke();
+                }
+
+                // Nodes
+                ctx.globalAlpha = 1;
+                const color = d3.scaleOrdinal(d3.schemeCategory10);
+                const maxDegree = nodes.reduce((m, n) => Math.max(m, n.degree || 0), 1);
+
+                for (const n of nodes) {
+                    const r = 2 + 4 * Math.sqrt((n.degree || 0) / maxDegree);
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+                    ctx.fillStyle = color(n.cluster || 0);
+                    ctx.fill();
+                }
+
+                // Labels: top-degree nodes up to labelPct
+                const pct = (parseFloat(labelPct.value || '0') || 0) / 100;
+                if (pct > 0) {
+                    const sorted = nodes.slice().sort((a, b) => (b.degree || 0) - (a.degree || 0));
+                    const count = Math.max(1, Math.round(sorted.length * pct));
+                    ctx.font = '10px system-ui';
+                    ctx.fillStyle = '#e6ebf2';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 3;
+                    for (let i = 0; i < count && i < sorted.length; i++) {
+                        const n = sorted[i];
+                        const label = String(n.id);
+                        ctx.save();
+                        ctx.translate(n.x + 4, n.y - 4);
+                        ctx.strokeText(label, 0, 0);
+                        ctx.fillText(label, 0, 0);
+                        ctx.restore();
+                    }
+                }
+
+                ctx.restore();
+            }
+
+            // ---------- Pan & zoom on canvas ----------
+            let isPanning = false;
+            let panStart = { x: 0, y: 0 };
+            let panViewStart = { tx: 0, ty: 0 };
+
+            canvas.addEventListener('mousedown', (e) => {
+                isPanning = true;
+                panStart = { x: e.clientX, y: e.clientY };
+                panViewStart = { tx: view.tx, ty: view.ty };
+            });
+            window.addEventListener('mouseup', () => { isPanning = false; });
+            window.addEventListener('mousemove', (e) => {
+                if (!isPanning) return;
+                const dx = e.clientX - panStart.x;
+                const dy = e.clientY - panStart.y;
+                view.tx = panViewStart.tx + dx;
+                view.ty = panViewStart.ty + dy;
+                drawGraph();
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY;
+                const zoomFactor = Math.exp(-delta * 0.001);
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+
+                const xBefore = (mx - view.tx) / view.k;
+                const yBefore = (my - view.ty) / view.k;
+
+                view.k *= zoomFactor;
+                view.k = Math.max(0.2, Math.min(5, view.k));
+
+                view.tx = mx - xBefore * view.k;
+                view.ty = my - yBefore * view.k;
+
+                drawGraph();
+            }, { passive: false });
+
+            // ---------- Hook up sliders to display values + re-render ----------
+            function bindSlider(slider, label, transformFn) {
+                if (!slider || !label) return;
+                const update = () => {
+                    let v = slider.value;
+                    label.textContent = transformFn ? transformFn(v) : v;
+                    if (!undoManager.suppress) {
+                        // On-the-fly redraw uses latest values
+                        drawGraph();
+                    }
+                };
+                slider.addEventListener('input', update);
+                update();
+            }
+
+            bindSlider(edgeAlpha, edgeAlphaVal, v => (v / 100).toFixed(2));
+            bindSlider(alphaGamma, alphaGammaVal, v => v);
+            bindSlider(labelPct, labelPctVal, v => v + '%');
+            bindSlider(iters, itersVal, v => v);
+            bindSlider(kSpring, kSpringVal, v => v);
+            bindSlider(kRepel, kRepelVal, v => v);
+            bindSlider(kGravity, kGravityVal, v => v);
+            bindSlider(wExp, wExpVal, v => v);
+            bindSlider(lenScale, lenScaleVal, v => v);
+            bindSlider(wPercentile, wPercentileVal, v => v);
+            bindSlider(wInfluence, wInfluenceVal, v => v);
+            bindSlider(sepMult, sepMultVal, v => v);
+            bindSlider(interK, interKVal, v => v);
+            bindSlider(itersIntra, itersIntraVal, v => v);
+
+            [toggleCross, toggleSelf, toggleClusterLayout, toggleSpectral, deterministic].forEach(el => {
+                if (!el) return;
+                el.addEventListener('change', () => {
+                    if (el === deterministic) {
+                        // reinitialize layout with new seed behavior
+                        initLayout();
+                    } else {
+                        drawGraph();
+                    }
+                });
+            });
+
+            // Search by node id: center on node
+            if (searchInput) {
+                searchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        const id = searchInput.value.trim();
+                        if (!id) return;
+                        const node = graph.nodes.get(id);
+                        if (!node) {
+                            setStatus('Node not found in current graph.');
+                            return;
+                        }
+                        view.k = 2;
+                        view.tx = viewWidth / 2 - node.x * view.k;
+                        view.ty = viewHeight / 2 - node.y * view.k;
+                        drawGraph();
+                        setStatus('Centered on node ' + id);
+                    }
+                });
+            }
+
+            // ---------- File input ----------
+            if (fileInput) {
+                fileInput.addEventListener('change', (e) => {
+                    const f = e.target.files && e.target.files[0];
+                    if (!f) return;
+                    const reader = new FileReader();
+                    setStatus('Reading file…');
+                    setError('');
+                    reader.onload = () => {
+                        try {
+                            drawHeatmap(reader.result);
+                            setStatus('Heatmap ready. Use Box Select to render graph.');
+                        } catch (err) {
+                            console.error(err);
+                            setError('Error parsing file: ' + err.message);
+                            setStatus('Error.');
+                        }
+                    };
+                    reader.onerror = () => {
+                        setError('Error reading file.');
+                        setStatus('Error.');
+                    };
+                    reader.readAsText(f);
+                });
+            }
+
+        })();
+    </script>
+
+</body>
+
+</html>
