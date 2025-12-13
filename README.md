@@ -22,8 +22,9 @@ Hi-C data captures the three-dimensional organization of the genome by measuring
 3. Upload your rawObserved Hi-C matrix, it should have three columns for i,j,v
 <img width="365" height="58" alt="image" src="https://github.com/user-attachments/assets/14deeb4e-1912-4be9-91ba-01f781b3f245" />
 
-4. Optinonally, upload your annotation file for TAD or Loop with appropriate headers for overlays
+4. Optinonally, upload your annotation file for TAD or Loop with appropriate headers for overlays. Turn overlay toggle on to replace Louvain clustering with TAD/Loop
 <img width="367" height="31" alt="image" src="https://github.com/user-attachments/assets/abb6422d-98b5-494a-8b89-e5edc0eb55e3" />
+<img width="373" height="29" alt="image" src="https://github.com/user-attachments/assets/40d36c4a-cfdd-4f38-aab6-9a23a047fcc0" />
 
 5. Modify the configurations to your likings
 <img width="380" height="551" alt="image" src="https://github.com/user-attachments/assets/df47654c-90ae-48a4-b994-954fa6e5dbc0" />
