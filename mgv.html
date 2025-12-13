@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Hi-C RAWobserved – Matrix→Graph Region Visualizer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- D3 for heatmap -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="side">
+      <h3>Hi-C RAWobserved – Matrix→Graph Region Visualizer</h3>
+
+      <div class="card">
+        <div class="row"><input id="file" type="file" accept=".RAWobserved,.txt,.tsv" /></div>
+        <div id="status" class="tiny">Choose a <b>.RAWobserved</b> file to begin.</div>
+        <div id="err"></div>
+      </div>
+      <!-- Annotation controls -->
+        <div class="card">
+        <div class="row"><label style="min-width:170px">Annotation file (TADs/loops)</label>
+            <input id="annFile" type="file" accept=".bed,.bedpe,.txt,.tsv" />
+        </div>
+        <div class="row">
+            <label style="min-width:170px">Chromosome (e.g., chr1)</label>
+            <input id="annChr" type="text" value="chr1" />
+        </div>
+        <div class="row">
+            <label style="min-width:170px">Bin size (bp)</label>
+            <input id="binSize" type="number" value="1000000" />
+            <span class="tiny">Used to convert x1/x2/y1/y2 to matrix bin indices</span>
+        </div>
+        <div class="row" style="gap:8px">
+            <label style="flex:1">Show overlay on heatmap</label>
+            <input id="annShow" type="checkbox" checked />
+        </div>
+        <div class="row" style="gap:8px">
+            <label style="flex:1">Use color from file</label>
+            <input id="annUseColor" type="checkbox" checked />
+        </div>
+        <div class="row">
+            <label style="min-width:170px">Default color (RGB)</label>
+            <input id="annColor" type="text" value="0,255,0" />
+            <span class="tiny">Only used if color column missing or unchecked</span>
+        </div>
+        <div class="tiny">
+            Expected columns: <code>chr1 x1 x2 chr2 y1 y2 [color f1..]</code>. Loops or TADs both work.
+            Only rows with <b>chr1==chr2==Chromosome</b> are drawn.
+        </div>
+        </div>
+
+    <div class="card">
+    <div class="row" style="gap:8px">
+        <label style="flex:1">Color nodes by TADs (override)</label>
+        <input id="useTADClusters" type="checkbox" />
+    </div>
+    <div class="row" style="gap:8px">
+        <label style="flex:1">Show loop edges overlay</label>
+        <input id="showLoopEdges" type="checkbox" checked />
+    </div>
+    <div class="row" style="gap:8px">
+        <label style="flex:1">Let loops influence layout</label>
+        <input id="loopsAffectLayout" type="checkbox" />
+    </div>
+    <div class="tiny">Loads TADs/loops from the same annotation file you already parse.</div>
+    </div>
+
+
+      <!-- Heatmap card (integrated) -->
+      <div class="card" id="heatmapCard">
+        <div class="row" style="justify-content:space-between; gap:6px">
+          <label style="min-width:170px">Hi-C Heatmap (box-select → render graph)</label>
+          <div>
+            <button id="hmPan">Pan/Zoom</button>
+            <button id="hmSelect">Box Select</button>
+            <button id="hmClear">Clear</button>
+          </div>
+        </div>
+        <div id="heatmapWrap">
+          <svg id="heatmap" viewBox="0 0 820 380" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <div class="tiny" id="hmInfo">—</div>
+      </div>
+
+      <h3 style="margin:0 0 8px">Heatmap Selection Graph – Weight Neighborhoods</h3>
+
+      <div class="card">
+        <label>Find node</label>
+        <input id="search" type="text" placeholder="Type node id … (e.g., 1000000) and press Enter" />
+        <div class="tiny">Pan: drag • Zoom: wheel/trackpad • Hover: neighbors • Click a cluster chip to zoom.</div>
+      </div>
+
+      <div class="card">
+        <div class="row"><label style="min-width:170px">Edge opacity (base)</label>
+          <input id="edgeAlpha" type="range" min="5" max="80" value="80" />
+          <span id="edgeAlphaVal" class="tag">0.80</span>
+        </div>
+        <div class="row"><label style="min-width:170px">Opacity weight gamma</label>
+          <input id="alphaGamma" type="range" min="0" max="100" value="40" />
+          <span id="alphaGammaVal" class="tag">40</span>
+        </div>
+        <div class="row"><label style="min-width:170px">Label density</label>
+          <input id="labelPct" type="range" min="0" max="100" value="0" />
+          <span id="labelPctVal" class="tag">0%</span>
+        </div>
+        <div class="row" style="gap:6px"><label style="flex:1">Show inter-cluster edges</label><input id="toggleCross" type="checkbox" checked /></div>
+        <div class="row" style="gap:6px"><label style="flex:1">Show self-edges</label><input id="toggleSelf" type="checkbox" /></div>
+      </div>
+
+      <div class="card">
+        <div class="row"><label style="min-width:170px">Iterations (global)</label><input id="iters" type="range" min="300" max="7000" value="1200" /><span id="itersVal" class="tag">1200</span></div>
+        <div class="row"><label style="min-width:170px">Repulsion</label><input id="kRepel" type="range" min="80" max="2000" value="500" /><span id="kRepelVal" class="tag">0</span></div>
+        <div class="row"><label style="min-width:170px">Spring base (k)</label><input id="kSpring" type="range" min="10" max="240" value="110" /><span id="kSpringVal" class="tag">0.10</span></div>
+        <div class="row"><label style="min-width:170px">Gravity to center</label><input id="kGravity" type="range" min="0" max="200" value="18" /><span id="kGravityVal" class="tag">0.00</span></div>
+        <div class="row"><label style="min-width:170px">Weight exponent (β)</label><input id="wExp" type="range" min="50" max="260" value="95" /><span id="wExpVal" class="tag">0.95</span></div>
+        <div class="row"><label style="min-width:170px">Edge length scale</label><input id="lenScale" type="range" min="5" max="200" value="55" /><span id="lenScaleVal" class="tag">0.05</span></div>
+        <div class="row"><label style="min-width:170px">Layout weight percentile</label><input id="wPercentile" type="range" min="0" max="95" value="95" /><span id="wPercentileVal" class="tag">95th</span></div>
+        <div class="row"><label style="min-width:170px">Weight influence (coloring)</label><input id="wInfluence" type="range" min="0" max="100" value="100" /><span id="wInfluenceVal" class="tag">100%</span></div>
+        <div class="row" style="gap:6px"><label style="flex:1">Neighborhood layout (clustered)</label><input id="toggleClusterLayout" type="checkbox" checked /></div>
+        <div class="row"><label style="min-width:170px">Use spectral init (weighted)</label><input id="toggleSpectral" type="checkbox" checked /></div>
+        <div class="row"><label style="min-width:170px">Deterministic (fixed seed)</label><input id="deterministic" type="checkbox" checked /></div>
+        <div class="row"><label style="min-width:170px">Seed</label><input id="seed" type="number" value="12345" /></div>
+        <div class="row"><label style="min-width:170px">Cluster separation</label><input id="sepMult" type="range" min="60" max="260" value="160" /><span id="sepMultVal" class="tag">2.60×</span></div>
+        <div class="row"><label style="min-width:170px">Inter-cluster spring</label><input id="interK" type="range" min="10" max="300" value="140" /><span id="interKVal" class="tag">2.70</span></div>
+        <div class="row"><label style="min-width:170px">Intra iterations</label><input id="itersIntra" type="range" min="200" max="5000" value="1800" /><span id="itersIntraVal" class="tag">1800</span></div>
+        <div class="tiny">Clusters attract if they share stronger edges (neighborhoods). A baseline repulsion prevents collapse. All edges are drawn; weaker ones fade progressively.</div>
+      </div>
+
+      <div class="card">
+        <label>Clusters (color/legend)</label>
+        <div id="legend" class="legend"></div>
+      </div>
+    </div>
+
+    <div id="stage">
+      <canvas id="canvas"></canvas>
+      <div class="footer">Nodes: <span id="nodeCount">0</span> • Edges: <span id="edgeCount">0</span> • Clusters: <span id="comCount">0</span></div>
+    </div>
+  </div>
+
+  <script type="module" src="./ui.js"></script>
+</body>
+</html>
