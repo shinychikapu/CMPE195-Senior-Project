@@ -18,7 +18,7 @@ Hi-C data captures the three-dimensional organization of the genome by measuring
 
 ## Usage
 1. Clone the repository
-2. Load the webpage (mgv.html)
+2. Load the webpage locally (mgv.html). **VSCode Live Server** can be used for this. 
 3. Upload your rawObserved Hi-C matrix, it should have three columns for i,j,v
 <img width="365" height="58" alt="image" src="https://github.com/user-attachments/assets/14deeb4e-1912-4be9-91ba-01f781b3f245" />
 
